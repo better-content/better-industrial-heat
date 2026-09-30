@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "better_industrial_heat:item/spoiled_meat"
+  }
+}

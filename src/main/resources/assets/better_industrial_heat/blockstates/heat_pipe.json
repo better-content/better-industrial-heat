@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "better_industrial_heat:block/heat_pipe"
+    }
+  }
+}

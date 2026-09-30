@@ -1,6 +1,0 @@
-{
-  "cold_fluid": "minecraft:water",
-  "hot_fluid": "heat_sync:hot_water",
-  "heat_per_bucket": 400.0,
-  "cooling_per_bucket": 320.0
-}

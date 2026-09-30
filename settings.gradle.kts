@@ -8,4 +8,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "heat-sync"
+rootProject.name = "better-industrial-heat"

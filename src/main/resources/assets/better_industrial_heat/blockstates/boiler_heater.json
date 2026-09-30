@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "lit=false": { "model": "better_industrial_heat:block/boiler_heater" },
+    "lit=true": { "model": "better_industrial_heat:block/boiler_heater_active" }
+  }
+}

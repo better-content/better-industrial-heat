@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "better_industrial_heat:block/thermal_firebox" }
+  }
+}

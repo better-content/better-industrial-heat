@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "B": {
+      "item": "create:brass_sheet"
+    },
+    "F": {
+      "item": "create:fluid_tank"
+    },
+    "P": {
+      "item": "better_industrial_heat:heat_pipe"
+    }
+  },
+  "pattern": [
+    "BPB",
+    "PFP",
+    "BPB"
+  ],
+  "result": {
+    "count": 1,
+    "item": "better_industrial_heat:coolant_exchanger"
+  },
+  "show_notification": true
+}

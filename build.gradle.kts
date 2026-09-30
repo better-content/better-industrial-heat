@@ -55,7 +55,7 @@ group = property("mod_group") as String
 version = modVersion
 
 base {
-    archivesName.set("heat-sync")
+    archivesName.set("better-industrial-heat")
 }
 
 fun deobf(notation: String): Any =
@@ -316,8 +316,8 @@ tasks.withType<KotlinCompile>().configureEach {
 }
 
 mixin {
-    add(sourceSets.main.get(), "heat_sync.refmap.json")
-    config("heat_sync.mixins.json")
+    add(sourceSets.main.get(), "better_industrial_heat.refmap.json")
+    config("better_industrial_heat.mixins.json")
 }
 
 tasks.named("processResources") {
@@ -385,13 +385,13 @@ jacoco {
 }
 
 val coverageClassPatterns = listOf(
-    "com/bettercontent/heatsync/HeatMappingMath.class",
-    "com/bettercontent/heatsync/PipeThermalStepMath.class",
-    "com/bettercontent/heatsync/compat/latent/RadiogenicHeatDistribution.class",
-    "com/bettercontent/heatsync/compat/powergrid/PowerGridHeatMappingMath.class",
-    "com/bettercontent/heatsync/content/coolant/CoolantExchangeLogic.class",
-    "com/bettercontent/heatsync/content/energy/EnergyLadderMath.class",
-    "com/bettercontent/heatsync/content/heat/BoilerHeaterLogic.class"
+    "com/bettercontent/betterindustrialheat/HeatMappingMath.class",
+    "com/bettercontent/betterindustrialheat/PipeThermalStepMath.class",
+    "com/bettercontent/betterindustrialheat/compat/latent/RadiogenicHeatDistribution.class",
+    "com/bettercontent/betterindustrialheat/compat/powergrid/PowerGridHeatMappingMath.class",
+    "com/bettercontent/betterindustrialheat/content/coolant/CoolantExchangeLogic.class",
+    "com/bettercontent/betterindustrialheat/content/energy/EnergyLadderMath.class",
+    "com/bettercontent/betterindustrialheat/content/heat/BoilerHeaterLogic.class"
 )
 
 tasks.jacocoTestReport {
@@ -415,13 +415,13 @@ tasks.jacocoTestCoverageVerification {
         rule {
             element = "CLASS"
             includes = listOf(
-                "com.bettercontent.heatsync.HeatMappingMath",
-                "com.bettercontent.heatsync.PipeThermalStepMath",
-                "com.bettercontent.heatsync.compat.latent.RadiogenicHeatDistribution",
-                "com.bettercontent.heatsync.compat.powergrid.PowerGridHeatMappingMath",
-                "com.bettercontent.heatsync.content.coolant.CoolantExchangeLogic",
-                "com.bettercontent.heatsync.content.energy.EnergyLadderMath",
-                "com.bettercontent.heatsync.content.heat.BoilerHeaterLogic"
+                "com.bettercontent.betterindustrialheat.HeatMappingMath",
+                "com.bettercontent.betterindustrialheat.PipeThermalStepMath",
+                "com.bettercontent.betterindustrialheat.compat.latent.RadiogenicHeatDistribution",
+                "com.bettercontent.betterindustrialheat.compat.powergrid.PowerGridHeatMappingMath",
+                "com.bettercontent.betterindustrialheat.content.coolant.CoolantExchangeLogic",
+                "com.bettercontent.betterindustrialheat.content.energy.EnergyLadderMath",
+                "com.bettercontent.betterindustrialheat.content.heat.BoilerHeaterLogic"
             )
             limit {
                 counter = "LINE"

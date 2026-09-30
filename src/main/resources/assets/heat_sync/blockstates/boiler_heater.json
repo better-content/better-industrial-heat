@@ -1,6 +1,0 @@
-{
-  "variants": {
-    "lit=false": { "model": "heat_sync:block/boiler_heater" },
-    "lit=true": { "model": "heat_sync:block/boiler_heater_active" }
-  }
-}

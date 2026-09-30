@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "better_industrial_heat:block/creative_heat_source"
+    }
+  }
+}

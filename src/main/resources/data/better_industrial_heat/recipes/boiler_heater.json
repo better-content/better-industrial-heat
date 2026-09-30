@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "C": { "tag": "forge:plates/copper" },
+    "F": { "item": "create:fluid_pipe" },
+    "H": { "item": "better_industrial_heat:heat_pipe" },
+    "S": { "tag": "forge:plates/steel" },
+    "T": { "item": "create:fluid_tank" }
+  },
+  "pattern": [
+    "SCS",
+    "FHF",
+    "STS"
+  ],
+  "result": {
+    "count": 1,
+    "item": "better_industrial_heat:boiler_heater"
+  },
+  "show_notification": true
+}

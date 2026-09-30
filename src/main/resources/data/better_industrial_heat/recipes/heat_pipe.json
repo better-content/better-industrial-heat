@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "CCC",
+    "IRI",
+    "CCC"
+  ],
+  "key": {
+    "C": {
+      "tag": "forge:plates/copper"
+    },
+    "I": {
+      "tag": "forge:plates/iron"
+    },
+    "R": {
+      "item": "create:fluid_pipe"
+    }
+  },
+  "result": {
+    "item": "better_industrial_heat:heat_pipe",
+    "count": 4
+  }
+}

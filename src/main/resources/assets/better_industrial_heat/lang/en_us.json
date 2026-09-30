@@ -1,0 +1,23 @@
+{
+  "item.better_industrial_heat.dried_beef": "Dried Beef",
+  "item.better_industrial_heat.dried_porkchop": "Dried Porkchop",
+  "item.better_industrial_heat.dried_chicken": "Dried Chicken",
+  "item.better_industrial_heat.dried_mutton": "Dried Mutton",
+  "item.better_industrial_heat.dried_rabbit": "Dried Rabbit",
+  "item.better_industrial_heat.dried_cod": "Dried Cod",
+  "item.better_industrial_heat.dried_salmon": "Dried Salmon",
+  "block.better_industrial_heat.coolant_exchanger": "Coolant Exchanger",
+  "block.better_industrial_heat.creative_heat_source": "Creative Heat Source",
+  "block.better_industrial_heat.creative_cold_source": "Creative Cold Source",
+  "block.better_industrial_heat.hot_water": "Hot Water",
+  "item.better_industrial_heat.hot_water_bucket": "Hot Water Bucket",
+  "fluid_type.better_industrial_heat.hot_water": "Hot Water",
+  "tooltip.better_industrial_heat.mode.heating": "Mode: Heating coolant",
+  "tooltip.better_industrial_heat.mode.cooling": "Mode: Cooling coolant",
+  "block.better_industrial_heat.heat_pipe": "Heat Pipe",
+  "tooltip.better_industrial_heat.heat": "Heat: %s / %s",
+  "block.better_industrial_heat.thermal_firebox": "Thermal Firebox",
+  "block.better_industrial_heat.boiler_heater": "Boiler Heater",
+  "tooltip.better_industrial_heat.boiler_heater_strength": "Boiler heat strength: %s",
+  "block.better_industrial_heat.impossible_matter_transducer": "Impossible Matter Transducer"
+}
