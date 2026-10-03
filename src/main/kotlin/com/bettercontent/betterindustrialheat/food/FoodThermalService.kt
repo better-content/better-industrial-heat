@@ -286,10 +286,12 @@ object FoodThermalService {
     }
 
     internal fun weatherProbeChunksLoaded(pos: BlockPos, hasChunk: (Int, Int) -> Boolean): Boolean {
-        val originX = pos.x shr 4
-        val originZ = pos.z shr 4
+        // Weather2's WindManager.calculateAverageChunkHeightAround builds each
+        // height sample at (pos.x + offset) * 16 + 8. Those block coordinates
+        // address chunks pos.x + offset, not the chunks surrounding pos.x shr 4.
+        // Check the exact footprint before Cold Sweat asks Weather2 to sample it.
         val offsets = intArrayOf(-6, -3, 0, 3, 6)
-        return offsets.all { dx -> offsets.all { dz -> hasChunk(originX + dx, originZ + dz) } }
+        return offsets.all { dx -> offsets.all { dz -> hasChunk(pos.x + dx, pos.z + dz) } }
     }
 
     @SubscribeEvent
