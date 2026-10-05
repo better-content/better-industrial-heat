@@ -2,19 +2,15 @@ package com.bettercontent.betterindustrialheat.food
 
 import com.bettercontent.betterindustrialheat.HeatSyncMod
 import com.bettercontent.betterindustrialheat.HeatSyncThermalTags
-import com.bettercontent.betterindustrialheat.ColdSweatAmbientSampler
 import com.bettercontent.betterindustrialheat.api.ThermalCapabilities
 import com.bettercontent.betterindustrialheat.api.HeatBlockEntity
 import com.bettercontent.betterindustrialheat.api.HeatStorageThermalBody
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
-import com.momosoftworks.coldsweat.api.util.Temperature
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.network.chat.Component
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.util.Mth
 import net.minecraft.world.effect.MobEffectInstance
-import net.minecraft.world.entity.player.Player
 import net.minecraft.world.Container
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
@@ -24,98 +20,163 @@ import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity
 import net.minecraft.server.level.ServerLevel
 import net.minecraftforge.common.util.FakePlayer
 import net.minecraftforge.common.capabilities.ForgeCapabilities
+import net.minecraftforge.event.TickEvent
 import net.minecraftforge.event.entity.living.LivingEntityUseItemEvent
 import net.minecraftforge.event.entity.player.ItemTooltipEvent
 import net.minecraftforge.event.entity.player.PlayerInteractEvent
 import net.minecraftforge.event.level.BlockEvent
 import net.minecraftforge.eventbus.api.SubscribeEvent
-import net.minecraftforge.fml.ModList
 import net.minecraftforge.items.IItemHandlerModifiable
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ThreadLocalRandom
-import kotlin.math.exp
-import kotlin.math.pow
 
-/** Replaces FIAHI's coupled temperature/rot scalar with independent physical temperature and decay. */
+/**
+ * Food spoilage on a storage-category model: food ages by active world time scaled by its
+ * storage category (frozen 0x, cold 0.1x, ambient 1x), capped at one stage per settle so
+ * no gap can one-step food from fresh to ruined. Food owned by an offline player does not
+ * age at all. There is no per-stack physical temperature.
+ */
 object FoodThermalService {
     private const val KEY = "better_industrial_heat_food"
-    private const val TEMPERATURE_BUCKET = "temperature_bucket_c"
-    private const val TEMPERATURE_PRECISE = "temperature_precise_k"
     private const val DECAY = "decay"
     private const val LAST_TIME = "last_time"
-    private const val LAST_TARGET_BUCKET = "last_target_bucket_c"
-    private const val LAST_TARGET_APPLIANCE = "last_target_appliance"
-    private const val PRESERVATION_RATE = "preservation_rate"
+    private const val RATE = "rate"
+    private const val WARM_SINCE = "warm_since"
     private const val VERSION = "version"
+    private const val LEGACY_PRESERVATION_RATE = "preservation_rate"
     private const val ACTIVE = "better_industrial_heat_food_active"
-    private const val CURRENT_VERSION = 4
-    private const val WORLD_TAU_TICKS = 4000.0 // 95% in twenty minutes
-    private const val TEMPERATURE_BUCKET_C = 5.0
-    private const val REFRIGERATION_C = 5.0
+    private const val CURRENT_VERSION = 5
+    private const val CARRIED_SETTLE_INTERVAL = 200
+
+    /** Frozen food thaws after this much settled non-frozen storage before it can be eaten. */
+    internal const val THAW_TICKS = 1_200L
+
+    /** Thermal body temperature at or below this is frozen storage; at or below [COLD_K] is cold storage. */
+    internal const val FROZEN_K = 273.15
+    internal const val COLD_K = 278.15
+
     private val inventoryFingerprints = Collections.synchronizedMap(WeakHashMap<BlockEntity, Int>())
-    private val playerInventoryFingerprints = Collections.synchronizedMap(WeakHashMap<Player, Int>())
     private val reconciling = ThreadLocal.withInitial { false }
 
-    private data class ContainerTarget(val temperatureK: Double, val appliance: Boolean)
-
     enum class Stage { FRESH, STALE, SPOILED, ROTTEN, CONVERTED }
-    data class Profile(val id: String, val days: Double?, val freezingC: Double?, val meat: Boolean)
+
+    /** Storage category of a settled food stack; the only driver of the spoilage rate. */
+    enum class Storage { FROZEN, COLD, AMBIENT }
+
+    data class Profile(val id: String, val days: Double?, val preserved: Boolean, val meat: Boolean)
 
     fun profile(stack: ItemStack): Profile {
         val id = stack.item.descriptionId.lowercase()
         val meat = stack.item.foodProperties?.isMeat == true
         return when {
-            id.contains("vodka") || id.contains("rum") -> Profile("distilled_alcohol", null, -25.0, false)
-            id.contains("beer") || id.contains("wine") || id.contains("mead") -> Profile("fermented_alcohol", null, -5.0, false)
-            id.contains("grog") || id.contains("nog") || id.contains("cocktail") -> Profile("preserved", 1.0, -5.0, false)
-            stack.`is`(HeatSyncThermalTags.DRIED_FOODS) -> Profile("dried", 1.0, null, meat)
-            id.contains("canned") || id.contains("golden_") -> Profile("shelf_stable", null, 0.0, meat)
-            id.contains("jerky") || id.contains("pickle") || id.contains("kimchi") || id.contains("jam") || id.contains("marmalade") || id.contains("smoked") || id.contains("cheese") -> Profile("preserved", 1.0, 0.0, meat)
-            meat || id.contains("raw_") -> Profile("raw_animal", 1.0, 0.0, meat)
-            id.contains("apple") || id.contains("berry") || id.contains("carrot") || id.contains("potato") || id.contains("melon") || id.contains("vegetable") -> Profile("fresh_produce", 1.0, 0.0, false)
-            else -> Profile("prepared", 1.0, 0.0, meat)
+            id.contains("vodka") || id.contains("rum") -> Profile("distilled_alcohol", null, false, false)
+            id.contains("beer") || id.contains("wine") || id.contains("mead") -> Profile("fermented_alcohol", null, false, false)
+            id.contains("grog") || id.contains("nog") || id.contains("cocktail") -> Profile("preserved", 1.0, true, false)
+            stack.`is`(HeatSyncThermalTags.DRIED_FOODS) -> Profile("dried", 1.0, true, meat)
+            id.contains("canned") || id.contains("golden_") -> Profile("shelf_stable", null, false, meat)
+            id.contains("jerky") || id.contains("pickle") || id.contains("kimchi") || id.contains("jam") || id.contains("marmalade") || id.contains("smoked") || id.contains("cheese") -> Profile("preserved", 1.0, true, meat)
+            meat || id.contains("raw_") -> Profile("raw_animal", 1.0, false, meat)
+            id.contains("apple") || id.contains("berry") || id.contains("carrot") || id.contains("potato") || id.contains("melon") || id.contains("vegetable") -> Profile("fresh_produce", 1.0, false, false)
+            else -> Profile("prepared", 1.0, false, meat)
         }
     }
 
-    fun state(stack: ItemStack, targetK: Double, gameTime: Long): CompoundTag {
+    /** Spoilage rate of a category: frozen food never ages, cold or preserved food ages at 0.1x. */
+    internal fun preservationRate(profile: Profile, storage: Storage): Double = when {
+        profile.days == null -> 0.0
+        storage == Storage.FROZEN -> 0.0
+        storage == Storage.COLD || profile.preserved -> 0.1
+        else -> 1.0
+    }
+
+    /**
+     * Returns the settled v5 record for [stack], migrating any legacy record in place.
+     * Migration keeps accumulated decay but starts a fresh interval: a legacy timestamp is
+     * rebased to now so no gap from before the migration can be charged.
+     */
+    fun state(stack: ItemStack, storage: Storage, gameTime: Long): CompoundTag {
         val root = stack.orCreateTag
         val existing = root.getCompound(KEY)
-        if (existing.getInt(VERSION) == CURRENT_VERSION) {
-            // v3 stored only a display bucket. Keep that state and seed the precise
-            // value once so a reload cannot rejuvenate or randomly move the food.
-            if (!existing.contains(TEMPERATURE_PRECISE)) {
-                existing.putDouble(TEMPERATURE_PRECISE, kelvinForBucket(existing.getInt(TEMPERATURE_BUCKET)))
-                root.put(KEY, existing)
-            }
-            return existing
-        }
-        if (existing.getInt(VERSION) == 3) {
-            existing.putDouble(TEMPERATURE_PRECISE, kelvinForBucket(existing.getInt(TEMPERATURE_BUCKET)))
-            existing.putInt(VERSION, CURRENT_VERSION)
-            root.put(KEY, existing)
-            return existing
-        }
+        if (existing.getInt(VERSION) == CURRENT_VERSION) return existing
+        val carriedDecay = existing.getDouble(DECAY).coerceIn(0.0, 2.5)
         existing.allKeys.toList().forEach(existing::remove)
-        val targetBucket = bucketForKelvin(targetK)
         existing.putInt(VERSION, CURRENT_VERSION)
-        existing.putInt(TEMPERATURE_BUCKET, targetBucket)
-        existing.putDouble(TEMPERATURE_PRECISE, targetK)
-        existing.putDouble(DECAY, 0.0)
+        existing.putDouble(DECAY, carriedDecay)
         existing.putLong(LAST_TIME, gameTime)
-        existing.putInt(LAST_TARGET_BUCKET, targetBucket)
-        existing.putBoolean(LAST_TARGET_APPLIANCE, false)
-        existing.putDouble(PRESERVATION_RATE, preservationRate(profile(stack), targetK))
+        existing.putDouble(RATE, preservationRate(profile(stack), storage))
+        existing.putLong(WARM_SINCE, 0L)
         root.put(KEY, existing)
         return existing
     }
 
-    /** Reads current and immediately previous thermal records during the save migration window. */
+    /** Reads the persisted record across the save migration window without forcing a migration. */
     private fun thermalTag(stack: ItemStack): CompoundTag? = stack.tag?.getCompound(KEY)
-        ?.takeIf { it.getInt(VERSION) == CURRENT_VERSION || it.getInt(VERSION) == 3 }
+        ?.takeIf { it.contains(DECAY) || it.getInt(VERSION) != 0 }
 
-    fun stage(stack: ItemStack): Stage {
-        return FoodAgePolicy.stage(stack.tag?.getCompound(KEY)?.getDouble(DECAY) ?: 0.0)
+    fun stage(stack: ItemStack): Stage = FoodAgePolicy.stage(thermalTag(stack)?.getDouble(DECAY) ?: 0.0)
+
+    fun isFrozen(stack: ItemStack): Boolean {
+        if (profile(stack).days == null) return false
+        val tag = thermalTag(stack)?.takeIf { it.getInt(VERSION) == CURRENT_VERSION } ?: return false
+        return isFrozenTag(tag)
+    }
+
+    private fun isFrozenTag(tag: CompoundTag): Boolean =
+        tag.getLong(WARM_SINCE) != 0L || tag.getDouble(RATE) == 0.0
+
+    /** Item-model tint: frozen food is visibly ice-blue; spoilage deepens from faded brown to near-black. */
+    fun itemTint(stack: ItemStack): Int {
+        if (!stack.isEdible) return 0xFFFFFF
+        if (isFrozen(stack)) return 0x9DDCFF
+        return when (stage(stack)) {
+            Stage.FRESH -> 0xFFFFFF
+            Stage.STALE -> 0xD9C9AA
+            Stage.SPOILED -> 0x916D43
+            Stage.ROTTEN, Stage.CONVERTED -> 0x392416
+        }
+    }
+
+    /** Settles the persisted age in place without converting the item. */
+    fun settle(stack: ItemStack, storage: Storage, gameTime: Long) {
+        if (!isTrackedFood(stack)) return
+        val profile = profile(stack)
+        val tag = state(stack, storage, gameTime)
+        val elapsed = (gameTime - tag.getLong(LAST_TIME)).coerceAtLeast(0L)
+        profile.days?.let { days ->
+            // Settle elapsed age under the category persisted at the last update. This
+            // makes a late move into cold or frozen storage unable to erase warm time.
+            val priorRate = tag.getDouble(RATE).coerceIn(0.0, 1.0)
+            tag.putDouble(DECAY, FoodAgePolicy.advanceDecay(tag.getDouble(DECAY), elapsed, priorRate, days))
+        }
+        val frozenBefore = isFrozenTag(tag)
+        val newRate = preservationRate(profile, storage)
+        when {
+            profile.days == null -> tag.putLong(WARM_SINCE, 0L)
+            // Frozen storage keeps the thaw clock reset; leaving it starts the thaw clock.
+            newRate == 0.0 -> tag.putLong(WARM_SINCE, 0L)
+            frozenBefore -> {
+                val warmSince = tag.getLong(WARM_SINCE)
+                when {
+                    warmSince == 0L -> tag.putLong(WARM_SINCE, gameTime)
+                    gameTime - warmSince >= THAW_TICKS -> tag.putLong(WARM_SINCE, 0L)
+                }
+            }
+            else -> tag.putLong(WARM_SINCE, 0L)
+        }
+        // The new category governs the following lazy interval. Retaining the prior rate
+        // here would charge the first interval after a move at the old category's rate.
+        tag.putLong(LAST_TIME, gameTime)
+        tag.putDouble(RATE, newRate)
+    }
+
+    /** Settles the stack and converts it to spoiled produce/meat once it is rotten. */
+    fun tick(stack: ItemStack, storage: Storage, gameTime: Long): ItemStack {
+        if (!isTrackedFood(stack)) return stack
+        settle(stack, storage, gameTime)
+        return if (stage(stack) >= Stage.ROTTEN) {
+            ItemStack(if (profile(stack).meat) FoodItems.SPOILED_MEAT.get() else FoodItems.SPOILED_PRODUCE.get(), stack.count)
+        } else stack
     }
 
     /** Checks the settled persisted age without mutating a recipe input during repeated matching. */
@@ -128,23 +189,13 @@ object FoodThermalService {
         val decay = stored.getDouble(DECAY)
         val elapsed = if (gameTime <= stored.getLong(LAST_TIME)) 0L else
             runCatching { Math.subtractExact(gameTime, stored.getLong(LAST_TIME)) }.getOrDefault(Long.MAX_VALUE)
-        val rate = if (stored.contains(PRESERVATION_RATE)) {
-            stored.getDouble(PRESERVATION_RATE).coerceIn(0.0, 1.0)
-        } else {
-            val target = if (stored.contains(LAST_TARGET_BUCKET)) {
-                kelvinForBucket(stored.getInt(LAST_TARGET_BUCKET))
-            } else temperatureK(input)
-            preservationRate(profile, target)
+        val rate = when {
+            stored.getInt(VERSION) == CURRENT_VERSION -> stored.getDouble(RATE).coerceIn(0.0, 1.0)
+            stored.contains(LEGACY_PRESERVATION_RATE) -> stored.getDouble(LEGACY_PRESERVATION_RATE).coerceIn(0.0, 1.0)
+            else -> 1.0
         }
         return FoodAgePolicy.remainsFresh(decay, elapsed, rate, lifetime)
     }
-
-    fun temperatureK(stack: ItemStack): Double = thermalTag(stack)
-        ?.let { if (it.contains(TEMPERATURE_PRECISE)) it.getDouble(TEMPERATURE_PRECISE) else kelvinForBucket(it.getInt(TEMPERATURE_BUCKET)) }
-        ?: 295.15
-
-    fun isFrozen(stack: ItemStack): Boolean =
-        profile(stack).freezingC?.let { temperatureK(stack) - 273.15 <= it } == true
 
     /** Cooking changes the ordinary item but must not reset its elapsed food state. */
     @JvmStatic
@@ -158,86 +209,28 @@ object FoodThermalService {
     @JvmStatic
     fun carryDryingState(input: ItemStack, output: ItemStack) = carryCookingState(input, output)
 
-    /** Item-model tint: frozen food is visibly ice-blue; spoilage deepens from faded brown to near-black. */
-    fun itemTint(stack: ItemStack): Int {
-        if (!stack.isEdible) return 0xFFFFFF
-        val frozen = isFrozen(stack)
-        if (frozen) return 0x9DDCFF
-        return when (stage(stack)) {
-            Stage.FRESH -> 0xFFFFFF
-            Stage.STALE -> 0xD9C9AA
-            Stage.SPOILED -> 0x916D43
-            Stage.ROTTEN, Stage.CONVERTED -> 0x392416
-        }
-    }
-
-    fun tick(stack: ItemStack, targetK: Double, gameTime: Long, appliance: Boolean = false): ItemStack {
-        if (!stack.isEdible || stack.item == FoodItems.SPOILED_MEAT.get() || stack.item == FoodItems.SPOILED_PRODUCE.get()) return stack
-        val profile = profile(stack)
-        val tag = state(stack, targetK, gameTime)
-        val elapsed = (gameTime - tag.getLong(LAST_TIME)).coerceAtLeast(0L)
-        val old = if (tag.contains(TEMPERATURE_PRECISE)) tag.getDouble(TEMPERATURE_PRECISE)
-        else kelvinForBucket(tag.getInt(TEMPERATURE_BUCKET))
-        val priorTarget = kelvinForBucket(tag.getInt(LAST_TARGET_BUCKET))
-        val tau = if (tag.getBoolean(LAST_TARGET_APPLIANCE)) 200.0 else WORLD_TAU_TICKS
-        val next = priorTarget + (old - priorTarget) * exp(-elapsed / tau)
-        tag.putInt(TEMPERATURE_BUCKET, bucketForKelvin(next))
-        tag.putDouble(TEMPERATURE_PRECISE, next)
-        profile.days?.let { days ->
-            // Settle elapsed age under the category persisted at the last update. This
-            // makes a late refrigerator/freezer transition unable to erase warm time.
-            val priorRate = if (tag.contains(PRESERVATION_RATE)) tag.getDouble(PRESERVATION_RATE).coerceIn(0.0, 1.0)
-            else preservationRate(profile, old)
-            tag.putDouble(DECAY, FoodAgePolicy.advanceDecay(tag.getDouble(DECAY), elapsed, priorRate, days))
-        }
-        tag.putLong(LAST_TIME, gameTime)
-        tag.putInt(LAST_TARGET_BUCKET, bucketForKelvin(targetK))
-        tag.putBoolean(LAST_TARGET_APPLIANCE, appliance)
-        // The new target category governs the following lazy interval. Physical temperature
-        // approaches that target separately, so retaining `next` here would charge the first
-        // unloaded refrigerator/freezer interval at the old warm rate.
-        tag.putDouble(PRESERVATION_RATE, preservationRate(profile, targetK))
-        if (stage(stack) >= Stage.ROTTEN) return ItemStack(if (profile.meat) FoodItems.SPOILED_MEAT.get() else FoodItems.SPOILED_PRODUCE.get(), stack.count)
-        return stack
-    }
-
-    internal fun preservationRate(profile: Profile, temperatureK: Double): Double = when {
-        profile.days == null -> 0.0
-        temperatureK - 273.15 <= (profile.freezingC ?: Double.NEGATIVE_INFINITY) -> 0.0
-        temperatureK - 273.15 <= REFRIGERATION_C || profile.id == "dried" || profile.id == "preserved" -> 0.1
-        else -> 1.0
-    }
-
-    private fun bucketForKelvin(kelvin: Double): Int {
-        val bucket = (kelvin - 273.15) / TEMPERATURE_BUCKET_C
-        val lower = kotlin.math.floor(bucket).toInt()
-        return if (ThreadLocalRandom.current().nextDouble() < bucket - lower) lower + 1 else lower
-    }
-
-    private fun kelvinForBucket(bucket: Int): Double = bucket * TEMPERATURE_BUCKET_C + 273.15
-
-    /** Updates a real block inventory from local Cold Sweat temperature and adjacent thermal blocks. */
+    /** Updates a real block inventory from its storage category: adjacent heat devices and ice decide it. */
     fun tickContainer(level: Level, pos: BlockPos, container: Container, gameTime: Long) {
-        val foodSlots = (0 until container.containerSize).filter { isTrackedFood(container.getItem(it)) }
-        if (foodSlots.isEmpty()) return
-        val target = containerTarget(level, pos)
+        val storage = containerStorage(level, pos)
         for (slot in 0 until container.containerSize) {
             val stack = container.getItem(slot)
-            if (isTrackedFood(stack)) {
-                val effective = target ?: storedTarget(stack)
-                container.setItem(slot, tick(stack, effective.temperatureK, gameTime, effective.appliance))
-            }
+            if (isTrackedFood(stack)) container.setItem(slot, tick(stack, storage, gameTime))
         }
     }
 
     /**
-     * A powered Better Industrial Heat body is an appliance setpoint.  Ice is a passive local cold source;
-     * everything else follows Cold Sweat's actual world temperature at this block position.
+     * A powered Better Industrial Heat body is an appliance setpoint; ice and snow are
+     * passive frozen storage. Everything else stores food at ambient rates.
      */
-    private fun containerTarget(level: Level, pos: BlockPos): ContainerTarget? =
-        adjacentThermalTarget(level, pos)?.let { ContainerTarget(it, appliance = true) }
-            ?: adjacentPassiveColdTarget(level, pos)?.let { ContainerTarget(it, appliance = false) }
-            ?: ambient(level, pos)?.let { ContainerTarget(it, appliance = false) }
+    internal fun containerStorage(level: Level, pos: BlockPos): Storage {
+        val thermal = adjacentThermalTarget(level, pos)
+        if (thermal != null) return when {
+            thermal <= FROZEN_K -> Storage.FROZEN
+            thermal <= COLD_K -> Storage.COLD
+            else -> Storage.AMBIENT
+        }
+        return if (hasPassiveColdNeighbor(level, pos)) Storage.FROZEN else Storage.AMBIENT
+    }
 
     fun adjacentThermalTarget(level: Level, pos: BlockPos): Double? {
         val temperatures = loadedAdjacentPositions(pos, level::isLoaded).mapNotNull { (direction, sourcePos) ->
@@ -252,16 +245,13 @@ object FoodThermalService {
         return temperatures.takeIf { it.isNotEmpty() }?.average()
     }
 
-    private fun adjacentPassiveColdTarget(level: Level, pos: BlockPos): Double? =
-        loadedAdjacentPositions(pos, level::isLoaded).mapNotNull { (_, sourcePos) ->
+    private fun hasPassiveColdNeighbor(level: Level, pos: BlockPos): Boolean =
+        loadedAdjacentPositions(pos, level::isLoaded).any { (_, sourcePos) ->
             when (level.getBlockState(sourcePos).block) {
-                Blocks.SNOW_BLOCK -> 268.15
-                Blocks.ICE -> 273.15
-                Blocks.PACKED_ICE -> 263.15
-                Blocks.BLUE_ICE -> 253.15
-                else -> null
+                Blocks.SNOW_BLOCK, Blocks.ICE, Blocks.PACKED_ICE, Blocks.BLUE_ICE -> true
+                else -> false
             }
-        }.takeIf { it.isNotEmpty() }?.average()
+        }
 
     /** Neighbor enumeration is loaded-only so thermal inventory ticks can never request chunk generation. */
     internal fun loadedAdjacentPositions(
@@ -272,52 +262,49 @@ object FoodThermalService {
         if (isLoaded(neighbor)) direction to neighbor else null
     }
 
-    private fun ambient(player: Player): Double {
-        val mc = runCatching { Temperature.get(player, Temperature.Trait.WORLD) }.getOrDefault(0.88)
-        return mc * 25.0 + 273.15
-    }
+    // region Carried food lifecycle
 
-    private fun ambient(level: Level, pos: BlockPos): Double? {
-        if (!ModList.get().isLoaded(HeatSyncMod.COLD_SWEAT_MOD_ID)) return 295.15
-        if (ModList.get().isLoaded("weather2") && level is ServerLevel &&
-            !weatherProbeChunksLoaded(pos, level::hasChunk)) return null
-        val mc = runCatching { ColdSweatAmbientSampler.sampleWorldTemp(level, pos) }.getOrDefault(0.88)
-        return mc * 25.0 + 273.15
-    }
-
-    internal fun weatherProbeChunksLoaded(pos: BlockPos, hasChunk: (Int, Int) -> Boolean): Boolean {
-        // Weather2's WindManager.calculateAverageChunkHeightAround builds each
-        // height sample at (pos.x + offset) * 16 + 8. Those block coordinates
-        // address chunks pos.x + offset, not the chunks surrounding pos.x shr 4.
-        // Check the exact footprint before Cold Sweat asks Weather2 to sample it.
-        val offsets = intArrayOf(-6, -3, 0, 3, 6)
-        return offsets.all { dx -> offsets.all { dz -> hasChunk(pos.x + dx, pos.z + dz) } }
+    /** Carried food settles every few seconds so its tint and tooltip track reality during play. */
+    @SubscribeEvent
+    fun onPlayerTick(event: TickEvent.PlayerTickEvent) {
+        if (event.phase != TickEvent.Phase.END) return
+        val player = event.player as? ServerPlayer ?: return
+        if (player.tickCount % CARRIED_SETTLE_INTERVAL != 0) return
+        settleCarriedFood(player, player.level().gameTime)
     }
 
     @SubscribeEvent
     fun onPlayerLoggedIn(event: net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent) {
         val player = event.entity as? ServerPlayer ?: return
-        rebaseOfflineInventory(player, player.server.overworld().gameTime)
-        reconcilePlayerInventory(player, force = true)
-    }
-
-    internal fun rebaseOfflineInventory(player: ServerPlayer, now: Long) {
-        listOf(player.inventory.items, player.inventory.armor, player.inventory.offhand).flatten().forEach { stack ->
-            stack.tag?.getCompound(KEY)?.takeIf { it.getInt(VERSION) == CURRENT_VERSION }
-                ?.putLong(LAST_TIME, now)
-        }
+        // Carried food is not simulated while the player is offline: rebase before
+        // anything can settle so login cannot charge the absent interval as active age.
+        rebaseCarriedFood(player, player.server.overworld().gameTime)
     }
 
     @SubscribeEvent
     fun onPlayerLoggedOut(event: net.minecraftforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent) {
         val player = event.entity as? ServerPlayer ?: return
-        // Carried food is not simulated while the player is offline. Rebase the
-        // lazy timestamp so login cannot charge the absent interval as active age.
         val now = player.server.overworld().gameTime
-        // Settle the final online interval before rebasing the timestamp.
-        reconcilePlayerInventory(player, force = true)
-        rebaseOfflineInventory(player, now)
+        // Settle the final online interval, then rebase so the offline interval is never charged.
+        settleCarriedFood(player, now)
+        rebaseCarriedFood(player, now)
     }
+
+    /** Settles every carried food stack at ambient rates: inventory, ender chest, Curios, and bag handlers. */
+    internal fun settleCarriedFood(player: ServerPlayer, gameTime: Long) {
+        CarriedFoodWalk.walk(player) { stack -> tick(stack, Storage.AMBIENT, gameTime) }
+    }
+
+    internal fun rebaseCarriedFood(player: ServerPlayer, now: Long) {
+        CarriedFoodWalk.walk(player) { stack ->
+            stack.tag?.getCompound(KEY)?.putLong(LAST_TIME, now)
+            stack
+        }
+    }
+
+    // endregion
+
+    // region Block and machine inventories (change-driven)
 
     @SubscribeEvent
     fun onBlockPlaced(event: BlockEvent.EntityPlaceEvent) {
@@ -393,13 +380,10 @@ object FoodThermalService {
         }
         blockEntity.getCapability(ForgeCapabilities.ITEM_HANDLER).ifPresent { handler ->
             val writable = handler as? IItemHandlerModifiable ?: return@ifPresent
-            val foodSlots = (0 until writable.slots).filter { isTrackedFood(writable.getStackInSlot(it)) }
-            if (foodSlots.isEmpty()) return@ifPresent
-            val target = containerTarget(level, blockEntity.blockPos)
-            foodSlots.forEach { slot ->
+            val storage = containerStorage(level, blockEntity.blockPos)
+            for (slot in 0 until writable.slots) {
                 val stack = writable.getStackInSlot(slot)
-                val effective = target ?: storedTarget(stack)
-                writable.setStackInSlot(slot, tick(stack, effective.temperatureK, gameTime, effective.appliance))
+                if (isTrackedFood(stack)) writable.setStackInSlot(slot, tick(stack, storage, gameTime))
             }
         }
     }
@@ -428,50 +412,16 @@ object FoodThermalService {
         return if (found) result else 0
     }
 
-    private fun storedTarget(stack: ItemStack): ContainerTarget {
-        val tag = stack.tag?.getCompound(KEY)
-        return if (tag != null && tag.getInt(VERSION) == CURRENT_VERSION) {
-            ContainerTarget(kelvinForBucket(tag.getInt(LAST_TARGET_BUCKET)), tag.getBoolean(LAST_TARGET_APPLIANCE))
-        } else ContainerTarget(295.15, false)
-    }
+    // endregion
 
-    private fun isTrackedFood(stack: ItemStack): Boolean = stack.isEdible &&
-        stack.item != FoodItems.SPOILED_MEAT.get() && stack.item != FoodItems.SPOILED_PRODUCE.get()
-
-    @JvmStatic
-    fun onPlayerInventoryChanged(player: Player) {
-        if (player is ServerPlayer) reconcilePlayerInventory(player, force = false)
-    }
-
-    private fun reconcilePlayerInventory(player: ServerPlayer, force: Boolean) {
-        if (reconciling.get()) return
-        val inventories = listOf(player.inventory.items, player.inventory.armor, player.inventory.offhand)
-        val before = inventories.flatten().fold(1) { hash, stack ->
-            if (isTrackedFood(stack)) 31 * hash + stack.item.hashCode() + 31 * stack.count + (stack.tag?.hashCode() ?: 0) else hash
-        }
-        if (!force && playerInventoryFingerprints[player] == before) return
-        reconciling.set(true)
-        try {
-            val target = ambient(player)
-            inventories.forEach { inventory ->
-                inventory.indices.forEach { slot ->
-                    if (isTrackedFood(inventory[slot])) inventory[slot] = tick(inventory[slot], target, player.level().gameTime)
-                }
-            }
-            playerInventoryFingerprints[player] = inventories.flatten().fold(1) { hash, stack ->
-                if (isTrackedFood(stack)) 31 * hash + stack.item.hashCode() + 31 * stack.count + (stack.tag?.hashCode() ?: 0) else hash
-            }
-        } finally {
-            reconciling.set(false)
-        }
-    }
+    // region Eating
 
     @SubscribeEvent
     fun onUseStart(event: LivingEntityUseItemEvent.Start) {
         val stack = event.item
         if (!stack.isEdible) return
         val player = event.entity as? ServerPlayer
-        player?.let { reconcilePlayerInventory(it, force = true) }
+        player?.let { settle(stack, Storage.AMBIENT, it.level().gameTime) }
         if (isFrozen(stack)) {
             player?.let { FoodThermalEpisodes.onFrozenUseRejected(it, stack) }
             event.isCanceled = true
@@ -502,12 +452,19 @@ object FoodThermalService {
         val stack = event.itemStack
         if (!stack.isEdible || !stack.tag?.contains(KEY).orFalse()) return
         val p = profile(stack)
-        val c = temperatureK(stack) - 273.15
-        val frozen = isFrozen(stack)
-        event.toolTip.add(Component.literal("${"%.0f".format(c)} °C — ${stage(stack).name.lowercase()}"))
-        if (frozen) event.toolTip.add(Component.translatable("tooltip.better_industrial_heat.food_frozen"))
+        event.toolTip.add(Component.literal(stage(stack).name.lowercase()))
+        if (isFrozen(stack)) event.toolTip.add(Component.translatable("tooltip.better_industrial_heat.food_frozen"))
         if (p.days == null) event.toolTip.add(Component.translatable("tooltip.better_industrial_heat.food_shelf_stable"))
     }
 
     private fun Boolean?.orFalse() = this == true
+
+    // endregion
+
+    private fun isTrackedFood(stack: ItemStack): Boolean {
+        if (!stack.isEdible) return false
+        if (FoodItems.SPOILED_MEAT.isPresent && stack.item === FoodItems.SPOILED_MEAT.get()) return false
+        if (FoodItems.SPOILED_PRODUCE.isPresent && stack.item === FoodItems.SPOILED_PRODUCE.get()) return false
+        return true
+    }
 }

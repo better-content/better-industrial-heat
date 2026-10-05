@@ -7,26 +7,25 @@ import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 
 class FoodAgePolicyTest {
-    private val ordinary = FoodThermalService.Profile("raw_animal", 1.0, 0.0, true)
-    private val dried = FoodThermalService.Profile("dried", 1.0, null, true)
-    private val stable = FoodThermalService.Profile("shelf_stable", null, 0.0, false)
+    private val ordinary = FoodThermalService.Profile("raw_animal", 1.0, preserved = false, meat = true)
+    private val preserved = FoodThermalService.Profile("dried", 1.0, preserved = true, meat = true)
+    private val stable = FoodThermalService.Profile("shelf_stable", null, preserved = false, meat = false)
 
     @Test
-    fun activeRatesMatchFoodCategories() {
-        assertEquals(1.0, FoodThermalService.preservationRate(ordinary, 295.15))
-        assertEquals(0.1, FoodThermalService.preservationRate(ordinary, 278.15))
-        assertEquals(0.1, FoodThermalService.preservationRate(dried, 295.15))
-        assertEquals(0.0, FoodThermalService.preservationRate(ordinary, 268.15))
-        assertEquals(0.0, FoodThermalService.preservationRate(stable, 295.15))
+    fun storageCategoriesMatchFoodRates() {
+        assertEquals(1.0, FoodThermalService.preservationRate(ordinary, FoodThermalService.Storage.AMBIENT))
+        assertEquals(0.1, FoodThermalService.preservationRate(ordinary, FoodThermalService.Storage.COLD))
+        assertEquals(0.1, FoodThermalService.preservationRate(preserved, FoodThermalService.Storage.AMBIENT))
+        assertEquals(0.0, FoodThermalService.preservationRate(ordinary, FoodThermalService.Storage.FROZEN))
+        assertEquals(0.0, FoodThermalService.preservationRate(stable, FoodThermalService.Storage.AMBIENT))
     }
 
     @Test
-    fun dryingCopiesTheCompletePersistedFoodThermalState() {
+    fun dryingCopiesTheCompletePersistedFoodState() {
         TestMinecraftBootstrap.bootstrap()
         val input = ItemStack(Items.BEEF)
-        val sourceState = FoodThermalService.state(input, 291.15, 240L)
+        val sourceState = FoodThermalService.state(input, FoodThermalService.Storage.AMBIENT, 240L)
         sourceState.putDouble("decay", 0.375)
-        sourceState.putDouble("temperature_precise_k", 289.75)
         val expected = sourceState.copy()
         val output = ItemStack(Items.BEEF)
 
@@ -47,7 +46,7 @@ class FoodAgePolicyTest {
     }
 
     @Test
-    fun preservationRateUsesActiveTimeAndIsIndependentOfUpdatePartitioning() {
+    fun preservedRateUsesActiveTimeAndIsIndependentOfUpdatePartitioning() {
         val oneUpdate = FoodAgePolicy.advanceDecay(0.0, 240_000, 0.1, ordinary.days)
         var manyUpdates = 0.0
         repeat(10) { manyUpdates = FoodAgePolicy.advanceDecay(manyUpdates, 24_000, 0.1, ordinary.days) }
@@ -55,6 +54,14 @@ class FoodAgePolicyTest {
         assertEquals(1.0, oneUpdate, 1.0e-12)
         assertEquals(oneUpdate, manyUpdates, 1.0e-12)
         assertEquals(FoodThermalService.Stage.STALE, FoodAgePolicy.stage(oneUpdate))
+    }
+
+    @Test
+    fun oneSettleCrossesAtMostOneStageBoundary() {
+        assertEquals(1.0, FoodAgePolicy.advanceDecay(0.0, 240_000, 1.0, ordinary.days))
+        assertEquals(1.0, FoodAgePolicy.advanceDecay(0.9, 240_000, 1.0, ordinary.days))
+        assertEquals(1.5, FoodAgePolicy.advanceDecay(1.0, 240_000, 1.0, ordinary.days))
+        assertEquals(2.0, FoodAgePolicy.advanceDecay(1.5, 240_000, 1.0, ordinary.days))
     }
 
     @Test

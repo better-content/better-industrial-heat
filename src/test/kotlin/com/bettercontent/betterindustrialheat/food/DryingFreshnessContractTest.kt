@@ -14,12 +14,12 @@ class DryingFreshnessContractTest {
     fun `rack accepts fresh inputs but rejects stale and already stale catalogued foods`() {
         TestMinecraftBootstrap.bootstrap()
         val fresh = ItemStack(Items.BEEF)
-        FoodThermalService.state(fresh, 295.15, 0L)
+        FoodThermalService.state(fresh, FoodThermalService.Storage.AMBIENT, 0L)
         assertTrue(FoodThermalService.canDryAt(fresh, 23_999L))
         assertFalse(FoodThermalService.canDryAt(fresh, 24_000L))
 
         val alreadyStale = ItemStack(Items.COD)
-        FoodThermalService.state(alreadyStale, 295.15, 100L).putDouble("decay", 1.0)
+        FoodThermalService.state(alreadyStale, FoodThermalService.Storage.AMBIENT, 100L).putDouble("decay", 1.0)
         assertFalse(FoodThermalService.canDryAt(alreadyStale, 100L))
     }
 
@@ -27,14 +27,14 @@ class DryingFreshnessContractTest {
     fun `drying freshness settles preservation without mutating its input`() {
         TestMinecraftBootstrap.bootstrap()
         val refrigerated = ItemStack(Items.SALMON)
-        FoodThermalService.state(refrigerated, 278.15, 0L)
+        FoodThermalService.state(refrigerated, FoodThermalService.Storage.COLD, 0L)
         val before = refrigerated.tag!!.copy()
 
         assertTrue(FoodThermalService.canDryAt(refrigerated, 24_000L))
         assertEquals(before, refrigerated.tag)
 
         val frozen = ItemStack(Items.PORKCHOP)
-        FoodThermalService.state(frozen, 268.15, 0L)
+        FoodThermalService.state(frozen, FoodThermalService.Storage.FROZEN, 0L)
         assertTrue(FoodThermalService.canDryAt(frozen, 240_000L))
     }
 

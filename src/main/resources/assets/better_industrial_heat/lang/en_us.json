@@ -19,5 +19,7 @@
   "block.better_industrial_heat.thermal_firebox": "Thermal Firebox",
   "block.better_industrial_heat.boiler_heater": "Boiler Heater",
   "tooltip.better_industrial_heat.boiler_heater_strength": "Boiler heat strength: %s",
+  "tooltip.better_industrial_heat.food_frozen": "Frozen — thaw before eating",
+  "tooltip.better_industrial_heat.food_shelf_stable": "Shelf stable — never spoils",
   "block.better_industrial_heat.impossible_matter_transducer": "Impossible Matter Transducer"
 }
