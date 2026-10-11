@@ -1,5 +1,11 @@
 # Better Industrial Heat
 
+## Scope and authority
+
+This repository owns its mod-specific behavior and authoring inputs. Read [local instructions](AGENTS.md)
+and the [shared documentation/policy index](../../better-content-modpack/docs/README.md).
+
+
 Better Industrial Heat is a Minecraft `1.20.1` Forge mod built with Kotlin. It owns native heat pipes, thermal machinery, liquid coolant conversion, and the optional Cold Sweat ambient bridge.
 
 ## Behavior
