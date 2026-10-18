@@ -5,6 +5,7 @@ import com.bettercontent.betterindustrialheat.HeatSyncThermalTags
 import com.bettercontent.betterindustrialheat.api.ThermalCapabilities
 import com.bettercontent.betterindustrialheat.api.HeatBlockEntity
 import com.bettercontent.betterindustrialheat.api.HeatStorageThermalBody
+import net.minecraft.ChatFormatting
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.nbt.CompoundTag
@@ -447,12 +448,22 @@ object FoodThermalService {
 
     fun debuffDurationTicks(stage: Stage): Int = if (stage == Stage.STALE) 200 else 1200
 
+    fun freshnessTooltip(stage: Stage): Component {
+        val (key, color) = when (stage) {
+            Stage.FRESH -> "fresh" to ChatFormatting.GREEN
+            Stage.STALE -> "stale" to ChatFormatting.YELLOW
+            Stage.SPOILED -> "spoiled" to ChatFormatting.GOLD
+            Stage.ROTTEN, Stage.CONVERTED -> "rotten" to ChatFormatting.RED
+        }
+        return Component.translatable("tooltip.better_industrial_heat.food_$key").withStyle(color)
+    }
+
     @SubscribeEvent
     fun onTooltip(event: ItemTooltipEvent) {
         val stack = event.itemStack
         if (!stack.isEdible || !stack.tag?.contains(KEY).orFalse()) return
         val p = profile(stack)
-        event.toolTip.add(Component.literal(stage(stack).name.lowercase()))
+        event.toolTip.add(freshnessTooltip(stage(stack)))
         if (isFrozen(stack)) event.toolTip.add(Component.translatable("tooltip.better_industrial_heat.food_frozen"))
         if (p.days == null) event.toolTip.add(Component.translatable("tooltip.better_industrial_heat.food_shelf_stable"))
     }

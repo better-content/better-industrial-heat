@@ -20,6 +20,10 @@ Better Industrial Heat is a Minecraft `1.20.1` Forge mod built with Kotlin. It o
 - Allows otherwise-identical food stacks with different thermal/spoilage state to merge across vanilla inventories, item entities, hoppers, and standard Forge item handlers. Temperature and decay are weighted by the destination count plus the number actually moved; the destination item identity and every non-thermal tag remain unchanged.
 - Food spoilage runs on storage categories, not physical temperature. Each settled food stack records only its decay, a lazy timestamp, and the storage rate governing the pending interval. Ordinary food reaches harmful spoilage after 24,000 active ticks at ambient rates; cold storage (an adjacent thermal body at or below 5 °C) and `better_industrial_heat:dried_foods` or preserved entries age at 0.1×; frozen storage (ice, snow, or a thermal body at or below 0 °C) and shelf-stable foods do not age. A settle crosses at most one stage boundary and drops the remaining elapsed time, so a pause, an unloaded chunk, or a stale timestamp can never one-step food from fresh to ruined. Food carried by an offline player — inventory, ender chest, Curios slots, and carried bag item handlers — does not age at all. Frozen food stays uneatable until it has spent 1,200 ticks of settled non-frozen storage thawing. Block and machine inventories settle lazily when they change and never load chunks; a non-`Container` Forge machine that first writes tracked food activates this lazy reconciliation path, while untouched loot containers remain dormant.
 
+Food freshness tooltips use capitalized, localized stage labels: Fresh (green), Stale
+(yellow), Spoiled (gold), and Rotten (red). Frozen and shelf-stable notices remain separate;
+this presentation does not change decay or preservation rates.
+
 ## Configuration
 
 The common config defines:
