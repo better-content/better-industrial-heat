@@ -1,4 +1,8 @@
 {
+  "item.better_industrial_heat.spoiled_meat": "Rotten Meat",
+  "item.better_industrial_heat.spoiled_produce": "Rotten Produce",
+  "effect.better_industrial_heat.thirst": "Thirst",
+  "effect.better_industrial_heat.malnourishment": "Malnourishment",
   "item.better_industrial_heat.dried_beef": "Dried Beef",
   "item.better_industrial_heat.dried_porkchop": "Dried Porkchop",
   "item.better_industrial_heat.dried_chicken": "Dried Chicken",

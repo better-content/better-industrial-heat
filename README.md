@@ -22,7 +22,29 @@ Better Industrial Heat is a Minecraft `1.20.1` Forge mod built with Kotlin. It o
 
 Food freshness tooltips use capitalized, localized stage labels: Fresh (green), Stale
 (yellow), Spoiled (gold), and Rotten (red). Frozen and shelf-stable notices remain separate;
-this presentation does not change decay or preservation rates.
+this presentation does not change decay or preservation rates. At the Rotten threshold,
+normal ticking converts food into **Rotten Meat** or **Rotten Produce** (their existing
+`spoiled_meat` / `spoiled_produce` registry IDs are retained).
+
+### Eating penalties
+
+Penalties are guaranteed and are not cumulative stage packages:
+
+| Food | Effects |
+| --- | --- |
+| Fresh | None |
+| Stale | Thirst IV for 60 seconds |
+| Spoiled | Thirst VIII and Malnourishment I for 60 seconds |
+| Rotten, including converted meat/produce | Poison X for 5 seconds only |
+
+Thirst directly drains `0.025 × level` hydration points per second, retaining fractional
+losses; its 20-point pool empties in `800 / level` seconds, matching vanilla Hunger's
+food-equivalent scale. Stale costs 6 hydration points; spoiled costs 12. Quenched reserve
+is capped at remaining hydration. Malnourishment has its own scale: `level` percentage
+points per second from **every** Diet nutrient group, clamped at zero. Spoiled food
+therefore removes 60 percentage points from each group over its full duration. These
+effects require their optional Thirst/Diet integrations to drain the corresponding pools.
+Vanilla Hunger is unchanged; its exhaustion consumes saturation before food.
 
 ## Configuration
 

@@ -435,18 +435,17 @@ object FoodThermalService {
         val current = event.item
         FoodThermalEpisodes.onFoodUseFinished(player, current)
         val stage = if (current.item == FoodItems.SPOILED_MEAT.get() || current.item == FoodItems.SPOILED_PRODUCE.get()) Stage.ROTTEN else stage(current)
-        val amplifier = when (stage) { Stage.STALE -> 0; Stage.SPOILED -> 1; Stage.ROTTEN, Stage.CONVERTED -> 2; else -> return }
-        val duration = debuffDurationTicks(stage)
-        player.addEffect(MobEffectInstance(net.minecraft.world.effect.MobEffects.HUNGER, duration, amplifier))
-        player.addEffect(MobEffectInstance(FoodEffects.THIRST.get(), duration, amplifier))
-        player.addEffect(MobEffectInstance(FoodEffects.MALNOURISHMENT.get(), duration, amplifier))
-        if (amplifier == 2) {
-            player.addEffect(MobEffectInstance(net.minecraft.world.effect.MobEffects.POISON, 200, 0))
-            player.addEffect(MobEffectInstance(net.minecraft.world.effect.MobEffects.MOVEMENT_SLOWDOWN, 400, 0))
+        when (stage) {
+            Stage.STALE -> player.addEffect(MobEffectInstance(FoodEffects.THIRST.get(), 1200, 3))
+            Stage.SPOILED -> {
+                player.addEffect(MobEffectInstance(FoodEffects.THIRST.get(), 1200, 7))
+                player.addEffect(MobEffectInstance(FoodEffects.MALNOURISHMENT.get(), 1200, 0))
+            }
+            Stage.ROTTEN, Stage.CONVERTED ->
+                player.addEffect(MobEffectInstance(net.minecraft.world.effect.MobEffects.POISON, 100, 9))
+            Stage.FRESH -> Unit
         }
     }
-
-    fun debuffDurationTicks(stage: Stage): Int = if (stage == Stage.STALE) 200 else 1200
 
     fun freshnessTooltip(stage: Stage): Component {
         val (key, color) = when (stage) {

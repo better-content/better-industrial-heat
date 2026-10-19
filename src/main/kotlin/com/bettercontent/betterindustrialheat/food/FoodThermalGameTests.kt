@@ -279,11 +279,45 @@ class FoodThermalGameTests {
     }
 
     @GameTest(template = "coolant_exchanger", timeoutTicks = 20)
-    fun staleFoodDebuffsLastTenSeconds(helper: GameTestHelper) {
-        helper.succeedIf {
-            helper.assertTrue(FoodThermalService.debuffDurationTicks(FoodThermalService.Stage.STALE) == 200, "Stale-food debuffs must last 10 seconds")
-            helper.assertTrue(FoodThermalService.debuffDurationTicks(FoodThermalService.Stage.SPOILED) == 1200, "More severe food stages retain their one-minute duration")
+    fun foodPenaltiesMatchFreshnessAndConvertedRottenItems(helper: GameTestHelper) {
+        val player = FakePlayerFactory.get(helper.level, GameProfile(java.util.UUID.randomUUID(), "food-penalties"))
+        val thirst = FoodEffects.THIRST.get()
+        val malnourishment = FoodEffects.MALNOURISHMENT.get()
+        val poison = net.minecraft.world.effect.MobEffects.POISON
+        helper.assertTrue((1..1200).count { thirst.isDurationEffectTick(it, 7) } == 60,
+            "Thirst VIII must drain exactly once per second, not once per tick")
+        helper.assertTrue((1..500).count { malnourishment.isDurationEffectTick(it, 9) } == 25,
+            "Malnourishment X must drain exactly once per second")
+        val cases = listOf(
+            0.0 to emptyMap(),
+            1.0 to mapOf(thirst to (1200 to 3)),
+            1.5 to mapOf(thirst to (1200 to 7), malnourishment to (1200 to 0)),
+            2.0 to mapOf(poison to (100 to 9)),
+            2.5 to mapOf(poison to (100 to 9)),
+        )
+        for ((decay, expected) in cases) {
+            val stack = ItemStack(Items.APPLE)
+            foodState(stack, decay = decay)
+            player.removeAllEffects()
+            FoodThermalService.onUseFinish(net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(player, stack, 32, ItemStack.EMPTY))
+            helper.assertTrue(player.activeEffects.size == expected.size, "Food stage $decay must apply only its own penalties")
+            for ((effect, values) in expected) {
+                val actual = player.getEffect(effect)
+                helper.assertTrue(actual?.duration == values.first && actual.amplifier == values.second, "Food stage $decay has incorrect effect strength/duration")
+            }
         }
+        for (item in listOf(FoodItems.SPOILED_MEAT.get(), FoodItems.SPOILED_PRODUCE.get())) {
+            player.removeAllEffects()
+            FoodThermalService.onUseFinish(net.minecraftforge.event.entity.living.LivingEntityUseItemEvent.Finish(player, ItemStack(item), 32, ItemStack.EMPTY))
+            helper.assertTrue(player.activeEffects.size == 1 && player.getEffect(poison)?.amplifier == 9 && player.getEffect(poison)?.duration == 100,
+                "Converted rotten food must apply only Poison X for five seconds")
+        }
+        val apple = ItemStack(Items.APPLE)
+        foodState(apple, decay = 2.0)
+        helper.assertTrue(FoodThermalService.tick(apple, FoodThermalService.Storage.AMBIENT, 0).item == FoodItems.SPOILED_PRODUCE.get(),
+            "Rotten food must still convert at the existing threshold")
+        player.removeAllEffects()
+        helper.succeed()
     }
 
     @GameTest(template = "coolant_exchanger", timeoutTicks = 20)

@@ -9,6 +9,16 @@ import kotlin.test.assertTrue
 
 class FoodFreshnessTooltipTest {
     @Test
+    fun `converted foods and custom effects have player facing names`() {
+        val language = javaClass.getResourceAsStream("/assets/better_industrial_heat/lang/en_us.json")!!
+            .bufferedReader().use { JsonParser.parseReader(it).asJsonObject }
+        assertEquals("Rotten Meat", language.get("item.better_industrial_heat.spoiled_meat").asString)
+        assertEquals("Rotten Produce", language.get("item.better_industrial_heat.spoiled_produce").asString)
+        assertEquals("Thirst", language.get("effect.better_industrial_heat.thirst").asString)
+        assertEquals("Malnourishment", language.get("effect.better_industrial_heat.malnourishment").asString)
+    }
+
+    @Test
     fun `freshness labels are capitalized and progress from green through yellow to red`() {
         TestMinecraftBootstrap.bootstrap()
         val language = javaClass.getResourceAsStream("/assets/better_industrial_heat/lang/en_us.json")!!

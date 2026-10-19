@@ -76,10 +76,9 @@ private object ThirstBridge {
         player.getCapability(ModCapabilities.PLAYER_THIRST).ifPresent { thirst ->
             val now = thirst.thirst
             val quenched = thirst.quenched
-            val loss = doubleArrayOf(2.0, 4.0, 6.0)[amplifier.coerceIn(0, 2)] / 60.0
-            val accumulated = (pendingLoss[player.uuid] ?: 0.0) + loss
-            val whole = accumulated.toInt()
-            pendingLoss[player.uuid] = accumulated - whole
+            // Vanilla Hunger's scale: one 20-point pool per 800 / level seconds.
+            val (whole, remainder) = FoodDrainPolicy.hydrationWithdrawal(pendingLoss[player.uuid] ?: 0.0, amplifier)
+            pendingLoss[player.uuid] = remainder
             val next = (now - whole).coerceAtLeast(0)
             thirst.thirst = next
             thirst.quenched = quenched.coerceAtMost(next)
@@ -92,8 +91,7 @@ private object DietBridge {
     fun drain(player: ServerPlayer, amplifier: Int) {
         if (!ModList.get().isLoaded("diet")) return
         Services.CAPABILITY.get(player).ifPresent { tracker ->
-            val total = doubleArrayOf(0.02, 0.06, 0.10)[amplifier.coerceIn(0, 2)] / 60.0
-            tracker.values.forEach { (key, value) -> tracker.setValue(key, (value - total.toFloat()).coerceAtLeast(0f)) }
+            tracker.values.forEach { (key, value) -> tracker.setValue(key, FoodDrainPolicy.remainingNutrient(value, amplifier)) }
             tracker.sync()
         }
     }
