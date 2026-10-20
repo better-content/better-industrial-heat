@@ -1,6 +1,8 @@
 package com.bettercontent.betterindustrialheat.content.coolant
 
 import com.bettercontent.betterindustrialheat.api.event.CoolantSafetyEvent
+import com.bettercontent.betterindustrialheat.diagnostics.PlaytestDiagnostics
+import com.bettercontent.betterindustrialheat.diagnostics.PlaytestLog
 
 import com.bettercontent.betterindustrialheat.HeatSyncRegistries
 import com.bettercontent.betterindustrialheat.api.HeatBlockEntity
@@ -40,6 +42,7 @@ class CoolantExchangerBlockEntity(
     private var safetyEpisode: String? = null
     private var safetyPlayer: UUID? = null
     private var operator: UUID? = null
+    private var lastObservationReason: String? = null
 
     fun configuredBy(player: UUID) { operator = player; setChanged() }
 
@@ -194,12 +197,14 @@ class CoolantExchangerBlockEntity(
     private fun processFluid(): Boolean {
         val stack = tank.fluid
         if (stack.isEmpty) {
+            observeFluid("empty_tank", "deferred")
             return false
         }
 
-        val fluidId = ForgeRegistries.FLUIDS.getKey(stack.fluid) ?: return false
-        val definition = LiquidCoolantManager.find(fluidId) ?: return false
+        val fluidId = ForgeRegistries.FLUIDS.getKey(stack.fluid) ?: run { observeFluid("unregistered_fluid", "rejected"); return false }
+        val definition = LiquidCoolantManager.find(fluidId) ?: run { observeFluid("unsupported_fluid", "rejected"); return false }
         val amount = stack.amount
+        val beforeHeat = heat
 
         val exchange = CoolantExchangeLogic.computeExchange(
             fluidId = fluidId,
@@ -207,12 +212,25 @@ class CoolantExchangerBlockEntity(
             currentHeat = heat,
             maxHeat = INTERNAL_HEAT_BUFFER,
             definition = definition,
-        ) ?: return false
-        val converted = resolveFluid(exchange.targetFluid) ?: return false
+        ) ?: run { observeFluid("no_exchange", "deferred"); return false }
+        val converted = resolveFluid(exchange.targetFluid) ?: run { observeFluid("unknown_target_fluid", "rejected"); return false }
         tank.setFluid(FluidStack(converted, amount))
         heat = exchange.resultingHeat
         setChanged()
+        observeFluid("converted", "applied", fluidId, exchange.targetFluid, amount, beforeHeat)
         return true
+    }
+
+    private fun observeFluid(reason: String, result: String, source: ResourceLocation? = null,
+                             target: ResourceLocation? = null, amount: Int = 0, beforeHeat: Float = heat) {
+        val log = PlaytestDiagnostics.LOG
+        if (!log.enabled("coolant")) return
+        if (reason == lastObservationReason && reason != "converted") return
+        lastObservationReason = reason
+        val current = level ?: return
+        log.debug("coolant", "coolant.exchange", PlaytestLog.Context.server(current.dimension().location().toString(), current.gameTime),
+            result, reason) { PlaytestLog.fields("pos_long", blockPos.asLong()) +
+                com.bettercontent.betterindustrialheat.diagnostics.FeatureObservation.fields(source?.toString(), target?.toString(), amount, beforeHeat, heat) }
     }
 
     private fun canSpendHeatIntoFluidThisTick(convertedThisTick: Boolean): Boolean {

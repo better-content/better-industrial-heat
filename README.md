@@ -1,5 +1,22 @@
 # Better Industrial Heat
 
+## Playtest diagnostics
+
+`bc.playtest.better_industrial_heat.coolant` reports completed fluid/heat conversions and
+reason transitions for empty, unsupported, no-exchange and missing-target cases at DEBUG;
+repeated identical deferrals stay silent. `food` reports actual settled stage/storage-rate/
+frozen transitions and separately labels rotten result construction as caller-owned inventory
+publication, not an observed inventory replacement. Food logging uses the already active
+settlement state: it never initializes, scans or settles food just to observe it.
+
+INFO startup includes effective enabled state, version, integration presence and exact
+owner-artifact source metadata when available (UNKNOWN otherwise). All categories share
+the owner-local Java17 helper's120 DEBUG/TRACE details/minute, burst20,256 keys and2048-char
+limit; native END ticks summarize every30 seconds and server stop clears aggregation.
+Standalone stays native INFO; the pack chooses scoped DEBUG/`bc.playtest.level`. No player
+names, inventories or NBT are logged. Common six-case and coolant projection/privacy tests
+run with the source gate; logs do not establish save durability or client presentation.
+
 ## Scope and authority
 
 This repository owns its mod-specific behavior and authoring inputs. Read [local instructions](AGENTS.md)

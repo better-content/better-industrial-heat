@@ -143,6 +143,9 @@ object FoodThermalService {
         if (!isTrackedFood(stack)) return
         val profile = profile(stack)
         val tag = state(stack, storage, gameTime)
+        val observing = com.bettercontent.betterindustrialheat.diagnostics.PlaytestDiagnostics.LOG.enabled("food")
+        val beforeDecay = if (observing) tag.getDouble(DECAY) else 0.0
+        val beforeRate = if (observing) tag.getDouble(RATE) else 0.0
         val elapsed = (gameTime - tag.getLong(LAST_TIME)).coerceAtLeast(0L)
         profile.days?.let { days ->
             // Settle elapsed age under the category persisted at the last update. This
@@ -169,6 +172,19 @@ object FoodThermalService {
         // here would charge the first interval after a move at the old category's rate.
         tag.putLong(LAST_TIME, gameTime)
         tag.putDouble(RATE, newRate)
+        if (observing) {
+            val beforeStage = FoodAgePolicy.stage(beforeDecay)
+            val afterStage = FoodAgePolicy.stage(tag.getDouble(DECAY))
+            val frozenAfter = isFrozenTag(tag)
+            if (beforeStage != afterStage || frozenBefore != frozenAfter || beforeRate != newRate) {
+                com.bettercontent.betterindustrialheat.diagnostics.PlaytestDiagnostics.LOG.debug("food", "food.storage_transition",
+                    com.bettercontent.betterindustrialheat.diagnostics.PlaytestLog.Context("unknown", "", gameTime, "", ""),
+                    "applied", "settled") { com.bettercontent.betterindustrialheat.diagnostics.PlaytestLog.fields(
+                        "before_stage", beforeStage, "after_stage", afterStage, "before_rate", beforeRate,
+                        "after_rate", newRate, "before_frozen", frozenBefore, "after_frozen", frozenAfter,
+                        "elapsed_ticks", elapsed, "storage", storage) }
+            }
+        }
     }
 
     /** Settles the stack and converts it to spoiled produce/meat once it is rotten. */
@@ -176,7 +192,12 @@ object FoodThermalService {
         if (!isTrackedFood(stack)) return stack
         settle(stack, storage, gameTime)
         return if (stage(stack) >= Stage.ROTTEN) {
-            ItemStack(if (profile(stack).meat) FoodItems.SPOILED_MEAT.get() else FoodItems.SPOILED_PRODUCE.get(), stack.count)
+            val converted = ItemStack(if (profile(stack).meat) FoodItems.SPOILED_MEAT.get() else FoodItems.SPOILED_PRODUCE.get(), stack.count)
+            val log = com.bettercontent.betterindustrialheat.diagnostics.PlaytestDiagnostics.LOG
+            if (log.enabled("food")) log.event("food", "food.conversion", "unknown", "constructed", "rotten_result_returned") {
+                com.bettercontent.betterindustrialheat.diagnostics.PlaytestLog.fields("count", converted.count, "inventory_publication", "caller_owned")
+            }
+            converted
         } else stack
     }
 
