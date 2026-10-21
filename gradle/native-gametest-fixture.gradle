@@ -1,0 +1,109 @@
+// Authored population is unchanged in BOTH full-gate Cold Sweat profiles.
+def expectedNativeTests = 33
+def expectedColdSweat = providers.gradleProperty('include_cold_sweat_runtime').orElse('true').get().toBoolean()
+def nativeRun = minecraft.runs.getByName('gameTestServer')
+def fixtureRoot = layout.buildDirectory.dir('gametest').get().asFile.canonicalFile
+// Bind the actual ForgeGradle RunConfig, never the later-populated JavaExec workingDir.
+nativeRun.workingDirectory(new File(fixtureRoot, UUID.randomUUID().toString()))
+def configuredNativeDirectory = {
+    def directory = project.file(nativeRun.workingDirectory).canonicalFile
+    if (!directory.canonicalPath.startsWith(fixtureRoot.path + File.separator))
+        throw new GradleException('Native RunConfig escaped its fresh build/gametest fixture')
+    directory
+}
+def prepareNativeProperties = { File properties ->
+    if (!properties.exists()) {
+        properties.parentFile.mkdirs()
+        properties.text = '# Fresh source GameTest fixture: native defaults, no overrides.\n'
+    }
+}
+def verifyNativeDiagnostics = { String text ->
+    def failures = []
+    def severity = null
+    text.eachLine { line ->
+        def header = (line =~ /(?:\/|\[)(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\]/)
+        if (header.find()) severity = header.group(1)
+        if (severity in ['ERROR', 'FATAL']) failures.add(line)
+        if (severity == 'WARN' && (line =~ /(?i)OutOfMemoryError|fatal error has been detected|crash report|ReportedException:|AssertionError|ThreadingDetector:|Exception in server tick loop|Failed to complete lifecycle event|Errors in currently selected datapacks|(?:failed to|error (?:while|when)) (?:load|register|parse|execute|save|read|write|start|join)|Registry Object not present:|(?:registry|registries|script|mixin)[^\r\n]*(?:failed|failure|corrupt)|(?:corrupt(?:ed|ion)?)[^\r\n]*(?:chunk|world|save|data)|(?:chunk|world|save|data)[^\r\n]*corrupt(?:ed|ion)?|(?:required tests?|game ?tests?|test batch|\btest\b)[^\r\n]*(?:failed|timed out)|(?:failed|timed out)[^\r\n]*\b(?:required )?(?:game ?tests?|tests?)\b|^\s*(?:Caused by: |Suppressed: |Exception in thread "[^"]+" )?(?:[a-zA-Z_$][\w$]*\.)*(?:\w*Exception|\w*Error):/).find())
+            failures.add(line)
+    }
+    if (failures) throw new GradleException('Actual native failure requires diagnosis: ' + failures.join('\n'))
+}
+def verifyNativeCompletion = { String text, int expected ->
+    if (!text.contains('Started game test server') || !text.contains('Game test server shutting down'))
+        throw new GradleException('Missing actual native startup/shutdown proof')
+    def completed = (text =~ /(?m)^.*?=+ (\d+) GAME TESTS COMPLETE =+.*$/).collect { it[1].toInteger() }
+    def passed = (text =~ /(?m)^.*?All (\d+) required tests passed.*$/).collect { it[1].toInteger() }
+    if (completed != [expected] || passed != [expected])
+        throw new GradleException("Incomplete native population: expected=${expected}, complete=${completed}, passed=${passed}")
+}
+tasks.matching { it.name == 'runGameTestServer' }.configureEach {
+    doFirst {
+        def directory = configuredNativeDirectory()
+        if (['world', 'logs/latest.log', 'logs/debug.log', 'source-fixture.json'].any { new File(directory, it).exists() })
+            throw new GradleException('Refusing reused native fixture: ' + directory)
+        directory.mkdirs()
+        new File(directory, 'source-fixture.json').text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([
+            working_directory: directory.absolutePath, expected_native_tests: expectedNativeTests,
+            mode: 'authored_gametests', cold_sweat_expected: expectedColdSweat,
+            old_world_absent: true, old_latest_log_absent: true, old_debug_log_absent: true
+        ])) + '\n'
+        prepareNativeProperties(new File(directory, 'server.properties'))
+        copy {
+            from(file('gameteststructures'))
+            into(new File(directory, 'gameteststructures'))
+            duplicatesStrategy = DuplicatesStrategy.FAIL
+        }
+        logger.lifecycle('Native GameTest RunConfig workingDirectory=' + directory)
+    }
+    doLast {
+        ['latest.log', 'debug.log'].each { name ->
+            def log = new File(configuredNativeDirectory(), 'logs/' + name)
+            if (!log.isFile() || log.length() == 0) throw new GradleException('Missing actual native log: ' + log)
+            def text = log.text
+            verifyNativeDiagnostics(text)
+            verifyNativeCompletion(text, expectedNativeTests)
+            def status = text.readLines().findAll { it.contains('BC_PLAYTEST') && it.contains('mod=' + project.property('mod_id') + ' event=logging.status') }
+            if (status.size() != 1 || !status[0].contains('cold_sweat_loaded=' + expectedColdSweat))
+                throw new GradleException('Missing/duplicate own native status or wrong actual Cold Sweat profile: ' + log)
+        }
+        logger.lifecycle('Verified actual native population=' + expectedNativeTests + '; latest/debug ERROR/FATAL/failed-WARN=0; fresh fixture retained')
+    }
+}
+tasks.register('verifyNativeGameTestFixtureGuard') {
+    group = 'verification'
+    description = 'Checks absent-only properties, actual-log failure and exact-population negative controls.'
+    doLast {
+        configuredNativeDirectory()
+        def properties = layout.buildDirectory.file('native-fixture-guard/' + UUID.randomUUID() + '/server.properties').get().asFile
+        prepareNativeProperties(properties)
+        if (!properties.isFile() || !properties.readLines().every { !it || it.startsWith('#') })
+            throw new GradleException('Fresh settings must preserve all native defaults')
+        def existing = 'max-tick-time=123456\nlevel-name=retained-fixture\n'
+        properties.text = existing
+        prepareNativeProperties(properties)
+        if (properties.text != existing) throw new GradleException('Preparation overwrote existing settings')
+        verifyNativeDiagnostics('[00:00:00] [main/WARN] [ForgeConfigSpec/CORE]: Correcting missing defaults\n[00:00:00] [main/INFO] [fixture/]: Native fixture ready')
+        ['[00:00:00] [main/ERROR] [fixture/]: failure',
+         '[21Oct2026 00:00:00.000] [main/FATAL] [fixture/]: failure',
+         '[00:00:00] [main/WARN] [fixture/]: Failed to read native config',
+         '[21Oct2026 00:00:00.000] [Server thread/WARN] [fixture/]: Required tests failed',
+         '[00:00:00] [Server thread/WARN] [fixture/]: Test module.example failed!',
+         '[00:00:00] [Server thread/WARN] [fixture/]: Failed required test module.example',
+         '[00:00:00] [main/WARN] [fixture/]: Native operation incomplete\njava.lang.IllegalStateException: native failure'].each { invalid ->
+            boolean rejected = false
+            try { verifyNativeDiagnostics(invalid) } catch (GradleException expected) { rejected = true }
+            if (!rejected) throw new GradleException('Diagnostic guard accepted synthetic failure')
+        }
+        def success = 'Started game test server\n========= 3 GAME TESTS COMPLETE =========\nAll 3 required tests passed :)\nGame test server shutting down\n'
+        verifyNativeCompletion(success, 3)
+        [[success, 2], ['', 3], [success + success, 3],
+         [success.replace('All 3 required tests passed :)', 'Some required tests failed'), 3]].each { invalid ->
+            boolean rejected = false
+            try { verifyNativeCompletion(invalid[0], invalid[1]) } catch (GradleException expected) { rejected = true }
+            if (!rejected) throw new GradleException('Population guard accepted incomplete/stale/duplicate proof')
+        }
+        logger.lifecycle('Native fixture guard: defaults/existing settings + latest/debug envelopes + failed WARN/stack + exact-count negatives PASS')
+    }
+}
+tasks.matching { it.name == 'verifyFast' }.configureEach { dependsOn('verifyNativeGameTestFixtureGuard') }

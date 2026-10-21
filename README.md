@@ -1,5 +1,17 @@
 # Better Industrial Heat
 
+## Native source fixture safety
+
+Each actual ForgeGradle GameTest RunConfig gets a fresh `build/gametest/<UUID>` working
+location. `verifyFull` keeps its ordered 33-test Cold Sweat-present gate followed by the
+33-test absent child invocation; each profile has its own UUID and verifies actual loaded
+Cold Sweat state. Preparation creates only absent comment-only `server.properties`,
+preserves existing settings, and copies authored structures. Both actual latest/debug logs
+must prove the unchanged population, startup/shutdown and own structured status, with no
+ERROR/FATAL or failed-operation WARN/stack records. Fast guards include negative controls.
+Ordinary client/server directories and every previous fixture/build remain untouched; this
+source mechanism does not itself claim runtime acceptance or authorize any producer.
+
 ## Playtest diagnostics
 
 `bc.playtest.better_industrial_heat.coolant` reports completed fluid/heat conversions and

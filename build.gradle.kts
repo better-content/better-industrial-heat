@@ -1,6 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import groovy.json.JsonSlurper
-import org.gradle.api.tasks.Sync
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File
@@ -34,11 +33,6 @@ val coldSweatRuntimeCurseFileId = property("cold_sweat_runtime_curse_file_id") a
 val includeColdSweatRuntime = providers.gradleProperty("include_cold_sweat_runtime")
     .map { it.toBoolean() }
     .orElse(true)
-val gameTestRunDirectory = layout.buildDirectory.dir(
-    includeColdSweatRuntime.map { includeColdSweat ->
-        if (includeColdSweat) "run-gametest-with-cold-sweat" else "run-gametest-without-cold-sweat"
-    }
-)
 val emiVersion = property("emi_version") as String
 val emiCurseFileId = property("emi_curse_file_id") as String
 val powerGridVersion = property("powergrid_version") as String
@@ -147,9 +141,7 @@ minecraft {
             arg("--nogui")
         }
 
-        create("gameTestServer") {
-            workingDirectory(gameTestRunDirectory.get().asFile)
-        }
+        create("gameTestServer")
 
         create("data") {
             args(
@@ -348,14 +340,8 @@ tasks.named("assemble") {
     dependsOn(stageRuntimeJar)
 }
 
-val syncGameTestStructures by tasks.registering(Sync::class) {
-    from(layout.projectDirectory.dir("gameteststructures"))
-    into(gameTestRunDirectory.map { it.dir("gameteststructures") })
-}
-
-tasks.matching { it.name == "prepareRunGameTestServer" }.configureEach {
-    dependsOn(syncGameTestStructures)
-}
+// Both parent and no-Cold-Sweat child get independent actual RunConfig UUIDs.
+apply(from = "gradle/native-gametest-fixture.gradle")
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
