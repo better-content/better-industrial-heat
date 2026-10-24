@@ -29,11 +29,7 @@ Standalone stays native INFO; the pack chooses scoped DEBUG/`bc.playtest.level`.
 names, inventories or NBT are logged. Common six-case and coolant projection/privacy tests
 run with the source gate; logs do not establish save durability or client presentation.
 
-## Scope and authority
-
-This repository owns its mod-specific behavior and authoring inputs. Read [local instructions](AGENTS.md)
-and the [shared documentation/policy index](../../better-content-modpack/docs/README.md).
-
+## Scope
 
 Better Industrial Heat is a Minecraft `1.20.1` Forge mod built with Kotlin. It owns native heat pipes, thermal machinery, liquid coolant conversion, and the optional Cold Sweat ambient bridge.
 
