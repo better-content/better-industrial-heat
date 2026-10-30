@@ -140,6 +140,7 @@ object FoodThermalService {
 
     /** Settles the persisted age in place without converting the item. */
     fun settle(stack: ItemStack, storage: Storage, gameTime: Long) {
+        if (com.bettercontent.betterindustrialheat.api.CookingAgeApi.settleCarrier(stack, storage, gameTime)) return
         if (!isTrackedFood(stack)) return
         val profile = profile(stack)
         val tag = state(stack, storage, gameTime)
@@ -191,6 +192,7 @@ object FoodThermalService {
     fun tick(stack: ItemStack, storage: Storage, gameTime: Long): ItemStack {
         if (!isTrackedFood(stack)) return stack
         settle(stack, storage, gameTime)
+        if (!stack.isEdible) return stack // Nested ingredient records age, carrier itself is never food.
         return if (stage(stack) >= Stage.ROTTEN) {
             val converted = ItemStack(if (profile(stack).meat) FoodItems.SPOILED_MEAT.get() else FoodItems.SPOILED_PRODUCE.get(), stack.count)
             val log = com.bettercontent.betterindustrialheat.diagnostics.PlaytestDiagnostics.LOG
@@ -225,6 +227,17 @@ object FoodThermalService {
         if (!input.isEdible || !output.isEdible) return
         val thermal = thermalTag(input) ?: return
         output.orCreateTag.put(KEY, thermal.copy())
+    }
+
+    /** Inputs have already been settled by the commit-time typed adapter. Keep the complete
+     * oldest record (including clocks/rate/thaw), not an average or a new fresh record.
+     * Existing output age participates so this helper can never make a result younger. */
+    @JvmStatic
+    fun carryOldestCookingState(inputs: List<ItemStack>, output: ItemStack) {
+        if (!output.isEdible) return
+        val oldest = (listOf(output) + inputs).asSequence().filter { it.isEdible }
+            .mapNotNull { thermalTag(it) }.maxByOrNull { it.getDouble(DECAY) } ?: return
+        output.orCreateTag.put(KEY, oldest.copy())
     }
 
     /** Drying racks preserve the input's thermal state while producing a dried food. */
@@ -317,9 +330,15 @@ object FoodThermalService {
         CarriedFoodWalk.walk(player) { stack -> tick(stack, Storage.AMBIENT, gameTime) }
     }
 
+    @JvmStatic
+    fun rebaseCookingClock(stack: ItemStack, now: Long) {
+        stack.tag?.getCompound(KEY)?.putLong(LAST_TIME, now)
+    }
+
     internal fun rebaseCarriedFood(player: ServerPlayer, now: Long) {
         CarriedFoodWalk.walk(player) { stack ->
-            stack.tag?.getCompound(KEY)?.putLong(LAST_TIME, now)
+            if (!com.bettercontent.betterindustrialheat.api.CookingAgeApi.rebaseCarrier(stack, now))
+                rebaseCookingClock(stack, now)
             stack
         }
     }
@@ -493,7 +512,7 @@ object FoodThermalService {
     // endregion
 
     private fun isTrackedFood(stack: ItemStack): Boolean {
-        if (!stack.isEdible) return false
+        if (!stack.isEdible) return com.bettercontent.betterindustrialheat.api.CookingAgeApi.isCarrier(stack)
         if (FoodItems.SPOILED_MEAT.isPresent && stack.item === FoodItems.SPOILED_MEAT.get()) return false
         if (FoodItems.SPOILED_PRODUCE.isPresent && stack.item === FoodItems.SPOILED_PRODUCE.get()) return false
         return true
