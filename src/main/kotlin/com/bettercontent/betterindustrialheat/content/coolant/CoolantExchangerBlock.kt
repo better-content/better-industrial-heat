@@ -2,6 +2,7 @@ package com.bettercontent.betterindustrialheat.content.coolant
 
 import com.bettercontent.betterindustrialheat.HeatSyncRegistries
 import com.bettercontent.betterindustrialheat.api.HeatCapabilities
+import com.bettercontent.betterindustrialheat.content.heat.ThermalSurfaceVariant
 import net.minecraft.core.BlockPos
 import net.minecraft.core.Direction
 import net.minecraft.util.StringRepresentable
@@ -47,8 +48,10 @@ class CoolantExchangerBlock : BaseEntityBlock(
     override fun setPlacedBy(level: Level, pos: BlockPos, state: BlockState,
         placer: net.minecraft.world.entity.LivingEntity?, stack: net.minecraft.world.item.ItemStack) {
         super.setPlacedBy(level, pos, state, placer, stack)
-        if (placer is net.minecraft.server.level.ServerPlayer)
-            (level.getBlockEntity(pos) as? CoolantExchangerBlockEntity)?.configuredBy(placer.uuid)
+        (level.getBlockEntity(pos) as? CoolantExchangerBlockEntity)?.let {
+            if (placer is net.minecraft.server.level.ServerPlayer) it.configuredBy(placer.uuid)
+            ThermalSurfaceVariant.placed(it, stack)
+        }
     }
 
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.MODEL

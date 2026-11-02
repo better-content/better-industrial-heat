@@ -24,7 +24,9 @@ import net.minecraftforge.common.util.LazyOptional
 class HeatPipeBlockEntity(
     pos: BlockPos,
     state: BlockState,
-) : BlockEntity(HeatSyncRegistries.HEAT_PIPE_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity, IHaveGoggleInformation {
+) : BlockEntity(HeatSyncRegistries.HEAT_PIPE_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity, IHaveGoggleInformation, ThermalSurfaceMachine {
+    override val thermalOutput = "better_industrial_heat:heat_pipe"
+    private val surface = ThermalSurfaceVariant(this)
     private var heat: Float = neutralHeat()
     private var heatCapability: LazyOptional<IHeatStorage> = LazyOptional.of { this }
 
@@ -40,11 +42,13 @@ class HeatPipeBlockEntity(
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
+        surface.load(tag)
         heat = if (tag.contains(HEAT_KEY)) boundedHeat(tag.getFloat(HEAT_KEY)) else neutralHeat()
     }
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)
+        surface.save(tag)
         tag.putFloat(HEAT_KEY, heat)
     }
 
@@ -89,7 +93,17 @@ class HeatPipeBlockEntity(
         return extracted
     }
 
-    override fun maxHeat(): Float = HeatSyncConfig.pipeMaxHeat().toFloat()
+    override fun maxHeat(): Float = maxOf(HeatSyncConfig.pipeMinHeat().toFloat(), surface.cappedCapacity(HeatSyncConfig.pipeMaxHeat().toFloat()))
+    override fun getThermalResistance(): Float = surface.resistance()
+    override fun applySurface(transfer: Double, envelope: Double, validatedSettings: CompoundTag) {
+        surface.apply(transfer, envelope, validatedSettings)
+        heat = boundedHeat(heat)
+        setChanged()
+    }
+    override fun resetSurface() { surface.reset(); setChanged() }
+    override fun storedSurfaceTag(): CompoundTag = surface.storedTag()
+    override fun transferRatio(): Float = surface.transferRatio()
+    override fun envelopeRatio(): Float = surface.envelopeRatio()
 
     override fun addToGoggleTooltip(tooltip: MutableList<Component>, isPlayerSneaking: Boolean): Boolean {
         HeatBlockEntity.addToolTips(this, tooltip)

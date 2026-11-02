@@ -3,6 +3,8 @@ package com.bettercontent.betterindustrialheat.content.heat
 import com.bettercontent.betterindustrialheat.HeatSyncRegistries
 import net.minecraft.core.BlockPos
 import net.minecraft.world.level.Level
+import net.minecraft.world.entity.LivingEntity
+import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.block.BaseEntityBlock
 import net.minecraft.world.level.block.RenderShape
 import net.minecraft.world.level.block.SoundType
@@ -22,6 +24,11 @@ class HeatPipeBlock : BaseEntityBlock(
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.MODEL
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = HeatPipeBlockEntity(pos, state)
+
+    override fun setPlacedBy(level: Level, pos: BlockPos, state: BlockState, placer: LivingEntity?, stack: ItemStack) {
+        super.setPlacedBy(level, pos, state, placer, stack)
+        (level.getBlockEntity(pos) as? HeatPipeBlockEntity)?.let { ThermalSurfaceVariant.placed(it, stack) }
+    }
 
     override fun <T : BlockEntity> getTicker(
         level: Level,

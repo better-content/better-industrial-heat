@@ -8,6 +8,8 @@ import com.bettercontent.betterindustrialheat.HeatSyncRegistries
 import com.bettercontent.betterindustrialheat.api.HeatBlockEntity
 import com.bettercontent.betterindustrialheat.api.HeatCapabilities
 import com.bettercontent.betterindustrialheat.api.IHeatStorage
+import com.bettercontent.betterindustrialheat.content.heat.ThermalSurfaceMachine
+import com.bettercontent.betterindustrialheat.content.heat.ThermalSurfaceVariant
 import com.simibubi.create.api.equipment.goggles.IHaveGoggleInformation
 import com.simibubi.create.foundation.utility.CreateLang
 import net.minecraft.ChatFormatting
@@ -36,7 +38,9 @@ class CoolantExchangerBlockEntity(
     pos: BlockPos,
     state: BlockState,
 ) : BlockEntity(HeatSyncRegistries.COOLANT_EXCHANGER_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity,
-    IHaveGoggleInformation {
+    IHaveGoggleInformation, ThermalSurfaceMachine {
+    override val thermalOutput = "better_industrial_heat:coolant_exchanger"
+    private val surface = ThermalSurfaceVariant(this)
     private var heat: Float = 0f
     private var tickCounter: Long = 0L
     private var safetyEpisode: String? = null
@@ -63,6 +67,7 @@ class CoolantExchangerBlockEntity(
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
+        surface.load(tag)
         heat = tag.getFloat(HEAT_KEY).coerceAtLeast(ABSOLUTE_ZERO)
         tickCounter = tag.getLong(TICK_KEY)
         operator = if (tag.hasUUID(OPERATOR_KEY)) tag.getUUID(OPERATOR_KEY) else null
@@ -73,6 +78,7 @@ class CoolantExchangerBlockEntity(
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)
+        surface.save(tag)
         tag.putFloat(HEAT_KEY, heat)
         tag.putLong(TICK_KEY, tickCounter)
         operator?.let { tag.putUUID(OPERATOR_KEY, it) }
@@ -123,7 +129,17 @@ class CoolantExchangerBlockEntity(
         setChanged()
     }
 
-    override fun maxHeat(): Float = INTERNAL_HEAT_BUFFER
+    override fun maxHeat(): Float = surface.cappedCapacity(INTERNAL_HEAT_BUFFER)
+    override fun getThermalResistance(): Float = surface.resistance()
+    override fun applySurface(transfer: Double, envelope: Double, validatedSettings: CompoundTag) {
+        surface.apply(transfer, envelope, validatedSettings)
+        // Overheat remains observable for the existing coolant safety/owner episode.
+        setChanged()
+    }
+    override fun resetSurface() { surface.reset(); setChanged() }
+    override fun storedSurfaceTag(): CompoundTag = surface.storedTag()
+    override fun transferRatio(): Float = surface.transferRatio()
+    override fun envelopeRatio(): Float = surface.envelopeRatio()
 
     override fun addToGoggleTooltip(tooltip: MutableList<Component>, isPlayerSneaking: Boolean): Boolean {
         HeatBlockEntity.addToolTips(this, tooltip)
@@ -172,7 +188,7 @@ class CoolantExchangerBlockEntity(
 
     private fun updateSafetyEpisode(converted: Boolean) {
         val serverLevel = level as? net.minecraft.server.level.ServerLevel ?: return
-        if (heat > INTERNAL_HEAT_BUFFER && safetyEpisode == null) {
+        if (heat > maxHeat() && safetyEpisode == null) {
             val owner = operator ?: return
             safetyEpisode = "$owner:heat:${blockPos.asLong()}:${serverLevel.gameTime}"
             safetyPlayer = owner
@@ -182,7 +198,7 @@ class CoolantExchangerBlockEntity(
                 ))
             }
             setChanged()
-        } else if (converted && heat <= INTERNAL_HEAT_BUFFER && safetyEpisode != null && safetyPlayer != null) {
+        } else if (converted && heat <= maxHeat() && safetyEpisode != null && safetyPlayer != null) {
             net.minecraftforge.common.MinecraftForge.EVENT_BUS.post(
                 com.bettercontent.betterindustrialheat.api.event.CoolantRecoveryEvent(serverLevel, safetyPlayer!!, blockPos, safetyEpisode!!))
             serverLevel.server.playerList.getPlayer(safetyPlayer!!)?.let { player ->
@@ -210,7 +226,7 @@ class CoolantExchangerBlockEntity(
             fluidId = fluidId,
             amount = amount,
             currentHeat = heat,
-            maxHeat = INTERNAL_HEAT_BUFFER,
+            maxHeat = maxHeat(),
             definition = definition,
         ) ?: run { observeFluid("no_exchange", "deferred"); return false }
         val converted = resolveFluid(exchange.targetFluid) ?: run { observeFluid("unknown_target_fluid", "rejected"); return false }
@@ -246,12 +262,12 @@ class CoolantExchangerBlockEntity(
         val fluidId = ForgeRegistries.FLUIDS.getKey(stack.fluid) ?: return false
         val definition = LiquidCoolantManager.find(fluidId) ?: return false
         return (heat > ABSOLUTE_ZERO && definition.matchesCold(fluidId)) ||
-            (heat < INTERNAL_HEAT_BUFFER && definition.matchesHot(fluidId))
+            (heat < maxHeat() && definition.matchesHot(fluidId))
     }
 
     private fun clampWorkingHeat(): Boolean {
         val clamped = if (hasMatchingFluidForCurrentHeat()) {
-            heat.coerceIn(ABSOLUTE_ZERO, INTERNAL_HEAT_BUFFER)
+            heat.coerceIn(ABSOLUTE_ZERO, maxHeat())
         } else {
             heat.coerceAtLeast(ABSOLUTE_ZERO)
         }

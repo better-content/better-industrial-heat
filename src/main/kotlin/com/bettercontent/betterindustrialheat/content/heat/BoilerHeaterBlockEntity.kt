@@ -26,7 +26,9 @@ class BoilerHeaterBlockEntity(
     pos: BlockPos,
     state: BlockState,
 ) : BlockEntity(HeatSyncRegistries.BOILER_HEATER_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity,
-    IHaveGoggleInformation {
+    IHaveGoggleInformation, ThermalSurfaceMachine {
+    override val thermalOutput = "better_industrial_heat:boiler_heater"
+    private val surface = ThermalSurfaceVariant(this)
     private var heat = AMBIENT_HEAT
     private var lastDeliveredStrength = 0
     private var active = false
@@ -35,6 +37,7 @@ class BoilerHeaterBlockEntity(
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
+        surface.load(tag)
         heat = tag.getFloat(HEAT_KEY).coerceIn(0f, maxHeat())
         lastDeliveredStrength = tag.getInt(STRENGTH_KEY).coerceIn(0, 3)
         active = tag.getBoolean(ACTIVE_KEY)
@@ -43,6 +46,7 @@ class BoilerHeaterBlockEntity(
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)
+        surface.save(tag)
         tag.putFloat(HEAT_KEY, heat)
         tag.putInt(STRENGTH_KEY, lastDeliveredStrength)
         tag.putBoolean(ACTIVE_KEY, active)
@@ -68,7 +72,17 @@ class BoilerHeaterBlockEntity(
     }
 
     override fun getHeat(): Float = heat
-    override fun maxHeat(): Float = HeatSyncConfig.boilerHeaterMaxHeat()
+    override fun maxHeat(): Float = surface.cappedCapacity(HeatSyncConfig.boilerHeaterMaxHeat())
+    override fun getThermalResistance(): Float = surface.resistance()
+    override fun applySurface(transfer: Double, envelope: Double, validatedSettings: CompoundTag) {
+        surface.apply(transfer, envelope, validatedSettings)
+        heat = heat.coerceAtMost(maxHeat())
+        setChanged()
+    }
+    override fun resetSurface() { surface.reset(); setChanged() }
+    override fun storedSurfaceTag(): CompoundTag = surface.storedTag()
+    override fun transferRatio(): Float = surface.transferRatio()
+    override fun envelopeRatio(): Float = surface.envelopeRatio()
     override fun canConnect(side: Direction?): Boolean = side != Direction.UP
 
     override fun addHeat(heat: Float) = setHeat(this.heat + heat)

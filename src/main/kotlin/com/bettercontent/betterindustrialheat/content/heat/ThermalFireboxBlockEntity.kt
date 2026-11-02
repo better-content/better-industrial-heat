@@ -29,7 +29,9 @@ import net.minecraftforge.items.ItemStackHandler
 class ThermalFireboxBlockEntity(
     pos: BlockPos,
     state: BlockState,
-) : BlockEntity(HeatSyncRegistries.THERMAL_FIREBOX_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity, IHaveGoggleInformation {
+) : BlockEntity(HeatSyncRegistries.THERMAL_FIREBOX_BLOCK_ENTITY.get(), pos, state), HeatBlockEntity, IHaveGoggleInformation, ThermalSurfaceMachine {
+    override val thermalOutput = "better_industrial_heat:thermal_firebox"
+    private val surface = ThermalSurfaceVariant(this)
     private var heat = AMBIENT_HEAT
     private var burnTicks = 0
     private val fuel = object : ItemStackHandler(1) {
@@ -45,6 +47,7 @@ class ThermalFireboxBlockEntity(
 
     override fun load(tag: CompoundTag) {
         super.load(tag)
+        surface.load(tag)
         heat = tag.getFloat(HEAT_KEY).coerceIn(0f, maxHeat())
         burnTicks = tag.getInt(BURN_KEY).coerceAtLeast(0)
         fuel.deserializeNBT(tag.getCompound(FUEL_KEY))
@@ -52,6 +55,7 @@ class ThermalFireboxBlockEntity(
 
     override fun saveAdditional(tag: CompoundTag) {
         super.saveAdditional(tag)
+        surface.save(tag)
         tag.putFloat(HEAT_KEY, heat)
         tag.putInt(BURN_KEY, burnTicks)
         tag.put(FUEL_KEY, fuel.serializeNBT())
@@ -79,7 +83,17 @@ class ThermalFireboxBlockEntity(
     }
 
     override fun getHeat(): Float = heat
-    override fun maxHeat(): Float = MAX_HEAT
+    override fun maxHeat(): Float = surface.cappedCapacity(MAX_HEAT)
+    override fun getThermalResistance(): Float = surface.resistance()
+    override fun applySurface(transfer: Double, envelope: Double, validatedSettings: CompoundTag) {
+        surface.apply(transfer, envelope, validatedSettings)
+        heat = heat.coerceAtMost(maxHeat())
+        setChanged()
+    }
+    override fun resetSurface() { surface.reset(); setChanged() }
+    override fun storedSurfaceTag(): CompoundTag = surface.storedTag()
+    override fun transferRatio(): Float = surface.transferRatio()
+    override fun envelopeRatio(): Float = surface.envelopeRatio()
 
     override fun addHeat(heat: Float) {
         this.heat = (this.heat + heat).coerceIn(0f, maxHeat())
@@ -115,7 +129,7 @@ class ThermalFireboxBlockEntity(
     }
 
     private fun serverTick() {
-        if (burnTicks <= 0 && heat < HeatSyncConfig.fireboxTargetHeat()) consumeFuel()
+        if (burnTicks <= 0 && heat < minOf(HeatSyncConfig.fireboxTargetHeat(), maxHeat())) consumeFuel()
         if (burnTicks > 0) {
             burnTicks--
             addHeat(HeatSyncConfig.fireboxHeatPerTick())

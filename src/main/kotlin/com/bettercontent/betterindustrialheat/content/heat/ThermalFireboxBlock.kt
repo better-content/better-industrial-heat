@@ -6,6 +6,7 @@ import net.minecraft.world.Containers
 import net.minecraft.world.InteractionHand
 import net.minecraft.world.InteractionResult
 import net.minecraft.world.entity.player.Player
+import net.minecraft.world.entity.LivingEntity
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.level.Level
 import net.minecraft.world.level.block.BaseEntityBlock
@@ -28,6 +29,11 @@ class ThermalFireboxBlock : BaseEntityBlock(
     override fun getRenderShape(state: BlockState): RenderShape = RenderShape.MODEL
 
     override fun newBlockEntity(pos: BlockPos, state: BlockState): BlockEntity = ThermalFireboxBlockEntity(pos, state)
+
+    override fun setPlacedBy(level: Level, pos: BlockPos, state: BlockState, placer: LivingEntity?, stack: ItemStack) {
+        super.setPlacedBy(level, pos, state, placer, stack)
+        (level.getBlockEntity(pos) as? ThermalFireboxBlockEntity)?.let { ThermalSurfaceVariant.placed(it, stack) }
+    }
 
     @Suppress("DEPRECATION")
     override fun use(
