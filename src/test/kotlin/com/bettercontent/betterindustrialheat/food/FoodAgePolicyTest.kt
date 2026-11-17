@@ -3,6 +3,7 @@ package com.bettercontent.betterindustrialheat.food
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
 
@@ -10,6 +11,14 @@ class FoodAgePolicyTest {
     private val ordinary = FoodThermalService.Profile("raw_animal", 1.0, preserved = false, meat = true)
     private val preserved = FoodThermalService.Profile("dried", 1.0, preserved = true, meat = true)
     private val stable = FoodThermalService.Profile("shelf_stable", null, preserved = false, meat = false)
+
+    @Test
+    fun absentPlacedOriginalCannotCreateAnAgeCredit() {
+        // Pure missing-row path: no block lookup, player/world or invented source.
+        // Actual KC placement and paid-bite event timing remain native-only checks.
+        val pending = NativePlacedAgeData()
+        assertNull(pending.debit(net.minecraft.core.BlockPos.ZERO, null, 1).orElse(null))
+    }
 
     @Test
     fun storageCategoriesMatchFoodRates() {
