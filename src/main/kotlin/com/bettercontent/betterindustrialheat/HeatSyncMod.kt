@@ -50,6 +50,7 @@ class HeatSyncMod(modLoadingContext: FMLJavaModLoadingContext) {
             PneumaticHeatBridge.initialize(MinecraftForge.EVENT_BUS)
         }
         MinecraftForge.EVENT_BUS.register(FoodThermalService)
+        com.bettercontent.betterindustrialheat.food.NativeAgeOwners.register()
 
         LOGGER.info("Loaded mod {}", MOD_ID)
     }

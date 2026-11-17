@@ -270,6 +270,16 @@ dependencies {
     compileOnly(deobf("curse.maven:thirst-was-taken-679270:6660408"))
     compileOnly(deobf("curse.maven:diet-443570:4813904"))
     compileOnly(deobf("curse.maven:hexerei-548599:$hexereiCurseFileId"))
+    // Existing optional Water/Spice source APIs, not JAR packaging or runtime ownership.
+    for ((propertyName, apiClass) in mapOf(
+        "typedWaterCompileClasses" to "com/bettercontent/betterdrinkingwater/api/NativeDrinkProducedEvent.class",
+        "typedSpiceCompileClasses" to "com/bettercontent/betterspicyfarmers/api/event/NativePlacedServingEvent.class"
+    )) {
+        val path = providers.gradleProperty(propertyName).orNull
+            ?: throw GradleException("Bind -P$propertyName=/absolute/classes/path for native age source")
+        check(file(path).resolve(apiClass).isFile) { "Missing native age source API $apiClass at $path" }
+        compileOnly(files(path))
+    }
     // Optional: carried-food walk covers Curios slots when the pack runs Curios.
     compileOnly(deobf("curse.maven:curios-api-309927:$curiosCurseFileId"))
 
