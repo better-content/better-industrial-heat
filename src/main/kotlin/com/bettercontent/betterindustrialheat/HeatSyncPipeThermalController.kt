@@ -1,7 +1,6 @@
 package com.bettercontent.betterindustrialheat
 
 import net.minecraft.core.BlockPos
-import net.minecraft.core.Direction
 import net.minecraft.core.SectionPos
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerLevel
@@ -14,7 +13,6 @@ import net.minecraftforge.event.level.ChunkEvent
 import net.minecraftforge.event.level.LevelEvent
 import net.minecraftforge.eventbus.api.SubscribeEvent
 import com.bettercontent.betterindustrialheat.api.HeatBlockEntity
-import com.bettercontent.betterindustrialheat.api.HeatCapabilities
 import com.bettercontent.betterindustrialheat.content.heat.HeatPipeBlock
 import com.bettercontent.betterindustrialheat.content.heat.HeatPipeBlockEntity
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet
@@ -23,17 +21,7 @@ import kotlin.math.abs
 object HeatSyncPipeThermalController {
     private const val UPDATE_INTERVAL_TICKS: Long = 20
     private const val MIN_HEAT_DELTA: Double = 0.01
-    private val DIRECTIONS: Array<Direction> = Direction.values()
     private val trackedPipePositionsByLevel = mutableMapOf<ResourceKey<Level>, LongOpenHashSet>()
-
-    private data class ThermalStepParameters(
-        val ambientBlendRate: Double,
-        val networkEqualizationStrength: Double,
-        val coldSourcePullRate: Double,
-        val pipeLossPerTick: Double,
-        val minPipeHeat: Double,
-        val maxPipeHeat: Double
-    )
 
     @SubscribeEvent
     fun onLevelLoad(event: LevelEvent.Load) {
@@ -113,15 +101,6 @@ object HeatSyncPipeThermalController {
             return
         }
 
-        val parameters = ThermalStepParameters(
-            ambientBlendRate = HeatSyncConfig.ambientBlendRate(),
-            networkEqualizationStrength = HeatSyncConfig.networkEqualizationStrength(),
-            coldSourcePullRate = HeatSyncConfig.coldSourcePullRate(),
-            pipeLossPerTick = HeatSyncConfig.pipeLossPerTick(),
-            minPipeHeat = HeatSyncConfig.pipeMinHeat(),
-            maxPipeHeat = HeatSyncConfig.pipeMaxHeat()
-        )
-
         val pipes = mutableListOf<HeatPipeBlockEntity>()
         val iterator = tracked.iterator()
         while (iterator.hasNext()) {
@@ -139,22 +118,30 @@ object HeatSyncPipeThermalController {
 
             pipes += pipe
         }
-        // Calculate a whole round from the same observations.  Mutating a pipe before
-        // observing its neighbour turns equalisation into a lossy sequential average.
-        val snapshot = pipes.associateBy({ it.blockPos }, { it.getHeat().toDouble() })
+        applyEnvironmentalRound(level, pipes, HeatSyncConfig.ambientBlendRate(),
+            HeatSyncConfig.coldSourcePullRate(), HeatSyncConfig.pipeLossPerTick())
+    }
+
+    /** Called every 20 ticks in production; rates are explicit for zero-environment native tests. */
+    internal fun applyEnvironmentalRound(
+        level: ServerLevel, pipes: List<HeatPipeBlockEntity>,
+        ambientBlendRate: Double, coldSourcePullRate: Double, pipeLossPerTick: Double,
+    ) {
+        // Neighbor exchange is settled exclusively by HeatBlockEntity.transferAround every
+        // four ticks. This slower round applies only environmental inputs and passive loss.
         val updates = pipes.mapNotNull { pipe ->
-            val currentHeat = snapshot.getValue(pipe.blockPos)
+            val currentHeat = pipe.getHeat().toDouble()
             val nextHeat = PipeThermalMath.step(
                 pipeHeat = currentHeat,
                 ambientHeat = AmbientHeatSampling.samplePipeHeat(level, pipe.blockPos),
-                neighborAverage = resolveNeighborAverage(level, pipe.blockPos, pipe, snapshot),
+                neighborAverage = null,
                 sourceHeat = resolveSourceHeat(level, pipe.blockPos),
-                ambientBlendRate = parameters.ambientBlendRate,
-                networkEqualizationStrength = parameters.networkEqualizationStrength,
-                coldSourcePullRate = parameters.coldSourcePullRate,
-                pipeLossPerTick = parameters.pipeLossPerTick,
-                minPipeHeat = parameters.minPipeHeat,
-                maxPipeHeat = parameters.maxPipeHeat
+                ambientBlendRate = ambientBlendRate,
+                networkEqualizationStrength = 0.0,
+                coldSourcePullRate = coldSourcePullRate,
+                pipeLossPerTick = pipeLossPerTick,
+                minPipeHeat = HeatSyncConfig.pipeMinHeat(),
+                maxPipeHeat = HeatSyncConfig.pipeMaxHeat()
             )
             if (abs(nextHeat - currentHeat) < MIN_HEAT_DELTA) null else pipe to nextHeat
         }
@@ -162,29 +149,6 @@ object HeatSyncPipeThermalController {
             pipe.setHeat(nextHeat.toFloat())
             HeatBlockEntity.trySync(pipe)
         }
-    }
-
-    private fun resolveNeighborAverage(
-        level: Level,
-        pos: BlockPos,
-        pipe: HeatPipeBlockEntity,
-        snapshot: Map<BlockPos, Double>,
-    ): Double? {
-        var totalHeat = 0.0
-        var neighborCount = 0
-
-        for (direction in DIRECTIONS) {
-            val neighborEntity = level.getBlockEntity(pos.relative(direction)) ?: continue
-            val neighbor = neighborEntity.getCapability(HeatCapabilities.HEAT, direction.opposite).resolve().orElse(null) ?: continue
-            if (!neighbor.canAdd(direction.opposite) || !pipe.canAdd(direction)) {
-                continue
-            }
-
-            totalHeat += snapshot[neighborEntity.blockPos] ?: neighbor.getHeat().toDouble()
-            neighborCount++
-        }
-
-        return if (neighborCount == 0) null else totalHeat / neighborCount
     }
 
     private fun resolveSourceHeat(level: Level, pos: BlockPos): Double? =

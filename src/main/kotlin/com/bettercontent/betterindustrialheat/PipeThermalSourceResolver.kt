@@ -9,12 +9,20 @@ import net.minecraft.world.level.block.state.BlockState
 object PipeThermalSourceResolver {
     private val DIRECTIONS: Array<Direction> = Direction.values()
 
-    fun resolveAdjacentAverageTargetHeat(level: Level, pos: BlockPos): Double? {
+    fun resolveAdjacentAverageTargetHeat(level: Level, pos: BlockPos): Double? =
+        resolveAdjacentAverageTargetHeat(pos, level::isLoaded, level::getBlockState)
+
+    /** Shared resolver for the live world and unloaded-neighbor native guard checks. */
+    internal fun resolveAdjacentAverageTargetHeat(
+        pos: BlockPos, isLoaded: (BlockPos) -> Boolean, getState: (BlockPos) -> BlockState,
+    ): Double? {
         var totalHeat = 0.0
         var sourceCount = 0
 
         for (direction in DIRECTIONS) {
-            val targetHeat = targetHeatFor(level.getBlockState(pos.relative(direction))) ?: continue
+            val neighborPos = pos.relative(direction)
+            if (!isLoaded(neighborPos)) continue
+            val targetHeat = targetHeatFor(getState(neighborPos)) ?: continue
             totalHeat += targetHeat
             sourceCount++
         }

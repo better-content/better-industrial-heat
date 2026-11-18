@@ -50,13 +50,13 @@ class ImpossibleMatterTransducerBlockEntity(
     private val feStorage = object : EnergyStorage(HeatSyncConfig.transducerFeCapacity()) {
         override fun receiveEnergy(maxReceive: Int, simulate: Boolean): Int {
             val received = super.receiveEnergy(maxReceive, simulate)
-            if (!simulate && received > 0) setChanged()
+            if (!simulate && received > 0) { setChanged(); HeatBlockEntity.trySync(this@ImpossibleMatterTransducerBlockEntity) }
             return received
         }
 
         override fun extractEnergy(maxExtract: Int, simulate: Boolean): Int {
             val extracted = super.extractEnergy(maxExtract, simulate)
-            if (!simulate && extracted > 0) setChanged()
+            if (!simulate && extracted > 0) { setChanged(); HeatBlockEntity.trySync(this@ImpossibleMatterTransducerBlockEntity) }
             return extracted
         }
     }
@@ -152,7 +152,9 @@ class ImpossibleMatterTransducerBlockEntity(
     private fun source(): IImpossibleMatterSource? {
         val currentLevel = level ?: return null
         for (direction in Direction.values()) {
-            val neighbor = currentLevel.getBlockEntity(blockPos.relative(direction)) ?: continue
+            val neighborPos = blockPos.relative(direction)
+            if (!currentLevel.isLoaded(neighborPos)) continue
+            val neighbor = currentLevel.getBlockEntity(neighborPos) ?: continue
             val source = neighbor.getCapability(ImpossibleMatterCapabilities.SOURCE, direction.opposite)
             if (source.isPresent) return source.orElseThrow { IllegalStateException("Impossible source disappeared") }
         }
@@ -160,32 +162,42 @@ class ImpossibleMatterTransducerBlockEntity(
     }
 
     private fun serverTick() {
-        HeatBlockEntity.transferAround(this)
-        if (!injectPending()) return
-        val grid = mainNode.grid ?: return
-        val source = source() ?: return
-        val preview = source.unbind(HeatSyncConfig.transducerUnitsPerTick(), true)
-        val plan = EnergyLadderMath.planUnbinding(
-            availableUnits = preview.units(),
-            previewAe = preview.ae(),
-            previewHeat = preview.heat(),
-            storedFe = feStorage.energyStored,
-            fePerUnit = HeatSyncConfig.transducerFePerUnit(),
-            gridDemandAe = grid.energyService.getEnergyDemand(preview.ae()),
-            unitsPerTick = HeatSyncConfig.transducerUnitsPerTick(),
-        )
-        if (plan.units <= 0) return
+        val previousHeat = heat
+        val previousPending = pendingAe
+        val previousFe = feStorage.energyStored
+        try {
+            HeatBlockEntity.transferAround(this, false)
+            if (!injectPending()) return
+            val grid = mainNode.grid ?: return
+            val source = source() ?: return
+            val preview = source.unbind(HeatSyncConfig.transducerUnitsPerTick(), true)
+            val plan = EnergyLadderMath.planUnbinding(
+                availableUnits = preview.units(),
+                previewAe = preview.ae(),
+                previewHeat = preview.heat(),
+                storedFe = feStorage.energyStored,
+                fePerUnit = HeatSyncConfig.transducerFePerUnit(),
+                gridDemandAe = grid.energyService.getEnergyDemand(preview.ae()),
+                unitsPerTick = HeatSyncConfig.transducerUnitsPerTick(),
+            )
+            if (plan.units <= 0) return
 
-        val containment = feStorage.extractEnergy(plan.containmentFe, false)
-        if (containment != plan.containmentFe) return
-        val actual = source.unbind(plan.units, false)
-        if (actual.units() <= 0 || actual.units() > plan.units || actual.ae() > plan.ae + MIN_AE) return
+            val containment = feStorage.extractEnergy(plan.containmentFe, false)
+            if (containment != plan.containmentFe) return
+            val actual = source.unbind(plan.units, false)
+            if (actual.units() <= 0 || actual.units() > plan.units || actual.ae() > plan.ae + MIN_AE) return
 
-        pendingAe += actual.ae()
-        addHeat(actual.heat())
-        injectPending()
-        if (heat > maxHeat()) {
-            level?.setBlockAndUpdate(blockPos, Blocks.LAVA.defaultBlockState())
+            pendingAe += actual.ae()
+            addHeat(actual.heat())
+            injectPending()
+            if (heat > maxHeat()) {
+                level?.setBlockAndUpdate(blockPos, Blocks.LAVA.defaultBlockState())
+            }
+        } finally {
+            // Exchange, FE containment and source-owned unbinding can change this machine
+            // independently; a quiet isolated transducer must not emit idle packets.
+            if (!isRemoved && (heat != previousHeat || pendingAe != previousPending ||
+                    feStorage.energyStored != previousFe)) HeatBlockEntity.trySync(this)
         }
     }
 

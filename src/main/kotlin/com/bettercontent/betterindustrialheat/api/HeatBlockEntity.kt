@@ -43,27 +43,45 @@ interface HeatBlockEntity : IHeatStorage {
         private const val OVERHEAT_LIMIT_FACTOR = 1.25f
 
         @JvmStatic
-        fun transferAround(source: HeatBlockEntity) {
+        fun transferAround(source: HeatBlockEntity) = transferAround(source, true)
+
+        /** Machines with independent tick changes publish their final state once after exchange. */
+        internal fun transferAround(source: HeatBlockEntity, syncSource: Boolean) {
             val sourceEntity = source as? BlockEntity ?: return
             val level = sourceEntity.level ?: return
+            transferAround(source, level::isLoaded, level::getBlockEntity, ::trySync, syncSource)
+        }
+
+        /** Production exchange with injectable world access and sync for native behavioral tests. */
+        internal fun transferAround(
+            source: HeatBlockEntity,
+            isLoaded: (net.minecraft.core.BlockPos) -> Boolean,
+            getNeighbor: (net.minecraft.core.BlockPos) -> BlockEntity?,
+            sync: (BlockEntity) -> Unit,
+            syncSource: Boolean = true,
+        ) {
+            val sourceEntity = source as? BlockEntity ?: return
+            if (sourceEntity.level == null) return
+            val initialHeat = source.getHeat()
             for (direction in Direction.values()) {
                 // A one-way input may receive heat from a hotter neighbour even when
                 // it cannot extract on this side; direction is checked after the gradient.
                 if (!source.canExtract(direction) && !source.canAdd(direction)) continue
-                val targetEntity = level.getBlockEntity(sourceEntity.blockPos.relative(direction)) ?: continue
+                val neighborPos = sourceEntity.blockPos.relative(direction)
+                if (!isLoaded(neighborPos)) continue
+                val targetEntity = getNeighbor(neighborPos) ?: continue
                 // IH peers run this same settlement loop; settle their edge once, but
                 // do not skip an external heat capability which never runs our loop.
                 if (targetEntity is HeatBlockEntity &&
                     sourceEntity.blockPos.asLong() >= targetEntity.blockPos.asLong()) continue
                 targetEntity.getCapability(HeatCapabilities.HEAT, direction.opposite).ifPresent { target ->
+                    val targetHeatBefore = target.getHeat()
                     if (source.getHeat() > target.getHeat()) {
                         if (!source.canExtract(direction) || !target.canAdd(direction.opposite)) return@ifPresent
                         val delta = source.getHeat() - target.getHeat()
                         val transfer = min(DEFAULT_TRANSFER_RATE, delta / transferResistance(source, target))
-                        val moved = settleHeat(source, target, transfer)
-                        if (moved > 0f) {
-                            trySync(targetEntity)
-                        }
+                        settleHeat(source, target, transfer)
+                        if (target.getHeat() != targetHeatBefore) sync(targetEntity)
                         return@ifPresent
                     }
 
@@ -71,13 +89,11 @@ interface HeatBlockEntity : IHeatStorage {
                     if (!target.canExtract(direction.opposite) || !source.canAdd(direction)) return@ifPresent
                     val delta = target.getHeat() - source.getHeat()
                     val transfer = min(DEFAULT_TRANSFER_RATE, delta / transferResistance(target, source))
-                    val moved = settleHeat(target, source, transfer)
-                    if (moved > 0f) {
-                        trySync(targetEntity)
-                    }
+                    settleHeat(target, source, transfer)
+                    if (target.getHeat() != targetHeatBefore) sync(targetEntity)
                 }
             }
-            trySync(sourceEntity)
+            if (syncSource && source.getHeat() != initialHeat) sync(sourceEntity)
         }
 
         /** Extract first: a source such as a pipe may have a nonzero native heat floor.

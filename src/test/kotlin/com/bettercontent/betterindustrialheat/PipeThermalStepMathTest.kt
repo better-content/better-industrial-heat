@@ -74,6 +74,23 @@ class PipeThermalStepMathTest {
     }
 
     @Test
+    fun `legacy neighbor average duplicates heat at a hot three leaf hub`() {
+        // A snapshot hub sees three cold leaves; each leaf sees the same hot hub.
+        // This documents the old controller bug, not an acceptance path for runtime.
+        val before = listOf(300.0, 100.0, 100.0, 100.0)
+        val after = before.mapIndexed { index, heat ->
+            PipeThermalStepMath.step(
+                pipeHeat = heat, neighborAverage = if (index == 0) 100.0 else 300.0,
+                ambientBlendRate = 0.0, networkEqualizationStrength = 0.30,
+                coldSourcePullRate = 0.0, pipeLossPerTick = 0.0,
+                minPipeHeat = 0.0, maxPipeHeat = 400.0,
+            )
+        }
+        assertEquals(600.0, before.sum(), 1.0e-9)
+        assertEquals(720.0, after.sum(), 1.0e-9)
+    }
+
+    @Test
     fun `paired pipe observations conserve heat when external terms are disabled`() {
         val first = PipeThermalStepMath.step(
             pipeHeat = 300.0, neighborAverage = 100.0,

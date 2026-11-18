@@ -128,13 +128,17 @@ class ThermalFireboxBlockEntity(
         return true
     }
 
-    private fun serverTick() {
-        if (burnTicks <= 0 && heat < minOf(HeatSyncConfig.fireboxTargetHeat(), maxHeat())) consumeFuel()
+    internal fun serverTick(sync: (BlockEntity) -> Unit = { HeatBlockEntity.trySync(it) }) {
+        val previousHeat = heat
+        val previousBurnTicks = burnTicks
+        val consumedFuel = burnTicks <= 0 && heat < minOf(HeatSyncConfig.fireboxTargetHeat(), maxHeat()) && consumeFuel()
         if (burnTicks > 0) {
             burnTicks--
             addHeat(HeatSyncConfig.fireboxHeatPerTick())
         }
-        HeatBlockEntity.transferAround(this)
+        // Publish the final machine state, including burn/fuel changes, only once.
+        HeatBlockEntity.transferAround(this, false)
+        if (heat != previousHeat || burnTicks != previousBurnTicks || consumedFuel) sync(this)
     }
 
     companion object {

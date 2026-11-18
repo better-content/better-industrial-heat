@@ -107,7 +107,7 @@ object HeatSyncConfig {
             .comment("Passive loss toward Better Industrial Heat neutral per update.")
             .defineInRange("pipe_loss_per_tick", 0.5, 0.0, Double.MAX_VALUE)
         networkEqualizationStrengthValue = builder
-            .comment("How strongly connected neighbors pull a pipe toward their average heat.")
+            .comment("Legacy compatibility setting for PipeThermalMath helpers; runtime neighbor transfer uses extract-before-credit settlement and does not use this value.")
             .defineInRange("network_equalization_strength", 0.30, 0.0, 1.0)
         coldSourcePullRateValue = builder
             .comment("How strongly adjacent cold sources pull a pipe toward their source heat.")

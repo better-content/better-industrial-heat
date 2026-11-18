@@ -108,10 +108,14 @@ class BoilerHeaterBlockEntity(
     fun isActive(): Boolean = active
     fun comparatorOutput(): Int = BoilerHeaterLogic.comparatorOutput(heat, maxHeat())
 
-    private fun serverTick() {
+    internal fun serverTick(
+        boilerRequestsHeatOverride: Boolean? = null,
+        sync: (BlockEntity) -> Unit = { HeatBlockEntity.trySync(it) },
+    ) {
+        val previousHeat = heat
         val tank = level?.getBlockEntity(blockPos.above()) as? FluidTankBlockEntity
         val controller = tank?.controllerBE
-        val boilerRequestsHeat = controller?.boiler?.isActive == true
+        val boilerRequestsHeat = boilerRequestsHeatOverride ?: (controller?.boiler?.isActive == true)
         val delivery = BoilerHeaterLogic.deliver(heat, boilerRequestsHeat, HeatSyncConfig.boilerHeaterSettings())
         val previousStrength = lastDeliveredStrength
         val previousActive = active
@@ -120,13 +124,13 @@ class BoilerHeaterBlockEntity(
         lastDeliveredStrength = delivery.strength
         active = delivery.strength > 0
 
-        if ((level?.gameTime ?: 0L) % TRANSFER_INTERVAL == 0L) HeatBlockEntity.transferAround(this)
+        if ((level?.gameTime ?: 0L) % TRANSFER_INTERVAL == 0L) HeatBlockEntity.transferAround(this, false)
         if (previousStrength != lastDeliveredStrength) tank?.updateBoilerTemperature()
         if (previousStrength != lastDeliveredStrength || previousActive != active) {
             updatePresentationState()
-            HeatBlockEntity.trySync(this)
             setChanged()
         }
+        if (heat != previousHeat || previousStrength != lastDeliveredStrength || previousActive != active) sync(this)
     }
 
     private fun updatePresentationState() {

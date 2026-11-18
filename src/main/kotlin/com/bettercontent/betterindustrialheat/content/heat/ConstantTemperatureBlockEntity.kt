@@ -79,9 +79,11 @@ class ConstantTemperatureBlockEntity(
     }
 
     private fun serverTick() {
+        val previousHeat = heat
         heat = targetTemperature()
-        HeatBlockEntity.transferAround(this)
-        HeatBlockEntity.trySync(this)
+        if (heat != previousHeat) setChanged()
+        HeatBlockEntity.transferAround(this, false)
+        if (heat != previousHeat) HeatBlockEntity.trySync(this)
     }
 
     private fun targetTemperature(): Float {
