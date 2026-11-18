@@ -1,5 +1,5 @@
-// Authored population is unchanged in BOTH full-gate Cold Sweat profiles.
-def expectedNativeTests = 33
+// All 35 authored @GameTest cases must pass in BOTH full-gate Cold Sweat profiles.
+def expectedNativeTests = 35
 def expectedColdSweat = providers.gradleProperty('include_cold_sweat_runtime').orElse('true').get().toBoolean()
 def nativeRun = minecraft.runs.getByName('gameTestServer')
 def fixtureRoot = layout.buildDirectory.dir('gametest').get().asFile.canonicalFile

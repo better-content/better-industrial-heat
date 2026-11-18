@@ -40,13 +40,6 @@ ordering="AFTER"
 side="BOTH"
 
 [[dependencies.${modId}]]
-modId="chemlib"
-mandatory=true
-versionRange="[${chemlibVersion},)"
-ordering="AFTER"
-side="BOTH"
-
-[[dependencies.${modId}]]
 modId="ae2"
 mandatory=false
 versionRange="[15.4.10,16)"

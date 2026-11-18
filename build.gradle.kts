@@ -24,8 +24,6 @@ val createMavenVersion = property("create_maven_version") as String
 val ponderVersion = property("ponder_version") as String
 val flywheelVersion = property("flywheel_version") as String
 val registrateVersion = property("registrate_version") as String
-val chemlibVersion = property("chemlib_version") as String
-val chemlibCurseFileId = property("chemlib_curse_file_id") as String
 val coldSweatVersion = property("cold_sweat_version") as String
 val coldSweatModrinthVersionId = property("cold_sweat_modrinth_version_id") as String
 val coldSweatRuntimeVersion = property("cold_sweat_runtime_version") as String
@@ -256,7 +254,6 @@ dependencies {
     runtimeOnly(deobf("dev.engine-room.flywheel:flywheel-forge-$minecraftVersion:$flywheelVersion"))
     implementation(deobf("com.tterrag.registrate:Registrate:$registrateVersion"))
 
-    implementation(deobf("curse.maven:chemlib-340666:$chemlibCurseFileId"))
     compileOnly(deobf("maven.modrinth:cold-sweat:$coldSweatModrinthVersionId"))
     if (includeColdSweatRuntime.get()) {
         runtimeOnly(deobf("curse.maven:cold-sweat-506194:$coldSweatRuntimeCurseFileId"))
@@ -294,7 +291,6 @@ tasks.processResources {
         "forgeVersion" to forgeVersion,
         "kotlinForForgeVersion" to kotlinForForgeVersion,
         "createReleaseVersion" to createReleaseVersion,
-        "chemlibVersion" to chemlibVersion,
         "coldSweatVersion" to coldSweatVersion,
         "emiVersion" to emiVersion,
         "powerGridVersion" to powerGridVersion,
@@ -371,6 +367,8 @@ val headlessGameTestNoColdSweat by tasks.registering(Exec::class) {
         project.layout.projectDirectory.file("gradlew").asFile.absolutePath,
         "runGameTestServer",
         "-Pinclude_cold_sweat_runtime=false",
+        "-PtypedWaterCompileClasses=${providers.gradleProperty("typedWaterCompileClasses").get()}",
+        "-PtypedSpiceCompileClasses=${providers.gradleProperty("typedSpiceCompileClasses").get()}",
         "--no-daemon",
     )
 }
